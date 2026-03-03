@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background: #f7f7f5;
+  color: #111110;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d0d0ca; border-radius: 10px; }
+
+.mono { font-family: 'Geist Mono', monospace; }
+.serif { font-family: 'Instrument Serif', serif; }
+
+@keyframes fadeSlideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes progressFill { from { width: 0; } }
+@keyframes countUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes barRise { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
+.page-enter { animation: fadeSlideUp 0.3s ease both; }
+.count-in { animation: countUp 0.4s ease both; }
+
+.nav-link {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-radius: 6px;
+  font-size: 13px; font-weight: 500;
+  color: #6b6b63; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  text-decoration: none; white-space: nowrap;
+}
+.nav-link:hover { background: #f0f0ed; color: #111110; }
+.nav-link.active {
+  background: #ffffff; color: #111110; font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px #e4e4e0;
+}
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 6px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none;
+  transition: all 0.15s; line-height: 1;
+}
+.btn-primary { background: #111110; color: #ffffff; }
+.btn-primary:hover { background: #333330; }
+.btn-secondary { background: #ffffff; color: #111110; border: 1px solid #e4e4e0; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+.btn-secondary:hover { background: #f0f0ed; }
+.btn-ghost { background: transparent; color: #6b6b63; }
+.btn-ghost:hover { background: #f0f0ed; color: #111110; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-blue { background: #2563eb; color: white; }
+.btn-blue:hover { background: #1d4ed8; }
+.btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.card { background: #ffffff; border: 1px solid #e4e4e0; border-radius: 8px; }
+.card-sm { padding: 14px 16px; }
+.card-md { padding: 20px 24px; }
+.card-lg { padding: 28px 32px; }
+
+.table { width: 100%; border-collapse: collapse; }
+.table th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600; color: #a8a89e; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #e4e4e0; }
+.table td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #e4e4e0; color: #111110; }
+.table tr:last-child td { border-bottom: none; }
+.table tr:hover td { background: #f7f7f5; }
+
+.input {
+  width: 100%; background: #ffffff; border: 1px solid #e4e4e0; border-radius: 6px;
+  padding: 8px 12px; font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 13px; color: #111110; outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.input::placeholder { color: #a8a89e; }
+select.input option { background: #ffffff; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600;
+  font-family: 'Plus Jakarta Sans', sans-serif; line-height: 1.6;
+}
+
+.divider { height: 1px; background: #e4e4e0; }
+
+.progress-track { height: 4px; border-radius: 99px; background: #f0f0ed; overflow: hidden; }
+.progress-bar { height: 100%; border-radius: 99px; animation: progressFill 0.8s ease both; transition: width 0.6s ease; }
+
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+.checkbox {
+  width: 16px; height: 16px; border-radius: 4px;
+  border: 1.5px solid #d0d0ca; background: #ffffff;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0; transition: all 0.15s;
+}
+.checkbox.checked { background: #111110; border-color: #111110; }
+
+.field-label { display: block; font-size: 12px; font-weight: 600; color: #6b6b63; margin-bottom: 5px; }
+
+.spinner {
+  width: 13px; height: 13px;
+  border: 2px solid white;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
