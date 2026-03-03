@@ -1,4 +1,4 @@
-# 🎓 StudentFriend — AI-Powered Academic Companion
+# 🎓 StudentFriend: AI-Powered Academic Companion
 
 A full-stack web application to help students manage academics, plan careers, track goals, and predict burnout.
 
