@@ -12,6 +12,8 @@ const userSchema = new mongoose.Schema({
   skills: [String],
   interests: [String],
   targetRole: String,
+  onboardingStep: { type: Number, default: 1 },
+  onboardingCompleted: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 

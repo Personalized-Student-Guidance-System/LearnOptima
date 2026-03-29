@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+
 import { useAuth } from '../context/AuthContext';
+import { getOnboardingRedirect } from '../utils/onboardingRedirect';
 import { Spinner } from '../design/ui';
 import { G } from '../design/tokens';
 
@@ -14,13 +16,17 @@ export default function Register() {
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const handleSubmit = async (e) => {
-    e.preventDefault(); setLoading(true); setError('');
+    e.preventDefault();
+    setLoading(true);
+    setError('');
     try {
-      await register(form);
-      navigate('/dashboard');
+      const u = await register(form);
+      navigate(getOnboardingRedirect(u));
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
