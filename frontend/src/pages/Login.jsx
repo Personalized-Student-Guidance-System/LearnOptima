@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getOnboardingRedirect } from '../utils/onboardingRedirect';
 import { Ic, Spinner } from '../design/ui';
 import { G, ICONS } from '../design/tokens';
 
@@ -16,8 +17,8 @@ export default function Login() {
     e.preventDefault();
     setLoading(true); setError('');
     try {
-      await login(email, password);
-      navigate('/dashboard');
+      const u = await login(email, password);
+      navigate(getOnboardingRedirect(u));
     } catch (err) {
       setError(err.response?.data?.message || 'Invalid credentials');
     } finally { setLoading(false); }
