@@ -41,17 +41,17 @@ export default function Step2Resume() {
     <OnboardingLayout
       step={2}
       title="Upload Resume"
-      subtitle="We'll extract skills and projects to personalize your skill gap analysis."
+      subtitle="We'll extract skills and projects from your resume."
     >
       <form onSubmit={handleSubmit}>
         {error && (
-          <div style={{ padding: '10px 14px', borderRadius: 7, background: G.redBg, border: `1px solid ${G.redBd}`, marginBottom: 16, fontSize: 13, color: G.red }}>
+          <div style={{ padding: '8px 12px', borderRadius: 6, background: G.redBg, border: `1px solid ${G.redBd}`, marginBottom: 14, fontSize: 12, color: G.red }}>
             {error}
           </div>
         )}
         <FileUpload label="Resume (PDF or DOC)" accept=".pdf,.doc,.docx" value={file} onChange={setFile} />
-        <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', justifyContent: 'center' }}>
-          {loading ? <><Spinner /> Uploading & analyzing…</> : 'Continue →'}
+        <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', justifyContent: 'center', fontSize: 13 }}>
+          {loading ? <><Spinner /> Analyzing…</> : 'Continue →'}
         </button>
       </form>
     </OnboardingLayout>

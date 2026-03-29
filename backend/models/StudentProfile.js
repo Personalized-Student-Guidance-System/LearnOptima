@@ -29,6 +29,6 @@ const studentProfileSchema = new mongoose.Schema({
   syllabusStructure: { type: mongoose.Schema.Types.Mixed, default: {} },
   timetableUrl: { type: String },
   timetable: { type: mongoose.Schema.Types.Mixed },
-}, { timestamps: true });
+}, { timestamps: true, collection: 'studentprofiles' });
 
 module.exports = mongoose.model('StudentProfile', studentProfileSchema);

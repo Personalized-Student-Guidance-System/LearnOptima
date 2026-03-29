@@ -39,17 +39,17 @@ export default function Step5Timetable() {
     <OnboardingLayout
       step={5}
       title="Upload Timetable"
-      subtitle="Upload a clear image of your weekly timetable. We'll use it for smart scheduling."
+      subtitle="Share your weekly schedule for smart task planning."
     >
       <form onSubmit={handleSubmit}>
         {error && (
-          <div style={{ padding: '10px 14px', borderRadius: 7, background: G.redBg, border: `1px solid ${G.redBd}`, marginBottom: 16, fontSize: 13, color: G.red }}>
+          <div style={{ padding: '8px 12px', borderRadius: 6, background: G.redBg, border: `1px solid ${G.redBd}`, marginBottom: 14, fontSize: 12, color: G.red }}>
             {error}
           </div>
         )}
         <FileUpload label="Timetable (image)" accept=".jpg,.jpeg,.png,.webp" value={file} onChange={setFile} />
-        <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', justifyContent: 'center' }}>
-          {loading ? <><Spinner /> Uploading…</> : 'Finish setup →'}
+        <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', justifyContent: 'center', fontSize: 13 }}>
+          {loading ? <><Spinner /> Completing setup…</> : 'Finish setup →'}
         </button>
       </form>
     </OnboardingLayout>

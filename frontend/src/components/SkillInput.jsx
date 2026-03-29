@@ -16,13 +16,13 @@ export default function SkillInput({ label, value = [], onChange, placeholder = 
   };
 
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div style={{ marginBottom: 12 }}>
       {label && (
-        <label className="field-label" style={{ display: 'block', marginBottom: 6 }}>
+        <label className="field-label" style={{ display: 'block', marginBottom: 6, fontSize: 12 }}>
           {label}
         </label>
       )}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
         {value.map((item) => (
           <span
             key={item}
@@ -31,9 +31,9 @@ export default function SkillInput({ label, value = [], onChange, placeholder = 
               background: G.blueBg,
               color: G.blue,
               border: `1px solid ${G.blueBd}`,
-              padding: '4px 10px',
-              borderRadius: 6,
-              fontSize: 12,
+              padding: '4px 8px',
+              borderRadius: 5,
+              fontSize: 11,
               display: 'inline-flex',
               alignItems: 'center',
               gap: 6,
@@ -49,7 +49,7 @@ export default function SkillInput({ label, value = [], onChange, placeholder = 
                 cursor: 'pointer',
                 padding: 0,
                 color: G.blue,
-                fontSize: 14,
+                fontSize: 12,
                 lineHeight: 1,
               }}
               aria-label="Remove"
@@ -59,16 +59,16 @@ export default function SkillInput({ label, value = [], onChange, placeholder = 
           </span>
         ))}
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 6 }}>
         <input
           className="input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
           placeholder={placeholder}
-          style={{ flex: 1 }}
+          style={{ flex: 1, fontSize: 13 }}
         />
-        <button type="button" className="btn btn-secondary" onClick={add}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={add} style={{ padding: '8px 12px' }}>
           Add
         </button>
       </div>

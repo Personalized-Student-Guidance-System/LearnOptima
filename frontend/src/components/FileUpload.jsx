@@ -11,9 +11,9 @@ export default function FileUpload({ label, accept, value, onChange, error }) {
   };
 
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div style={{ marginBottom: 14 }}>
       {label && (
-        <label className="field-label" style={{ display: 'block', marginBottom: 6 }}>
+        <label className="field-label" style={{ display: 'block', marginBottom: 6, fontSize: 12 }}>
           {label}
         </label>
       )}
@@ -30,7 +30,7 @@ export default function FileUpload({ label, accept, value, onChange, error }) {
         style={{
           border: `2px dashed ${error ? G.red : drag ? G.blue : G.border}`,
           borderRadius: 8,
-          padding: 24,
+          padding: 18,
           textAlign: 'center',
           background: drag ? G.blueBg : G.bg2,
           cursor: 'pointer',
@@ -45,23 +45,23 @@ export default function FileUpload({ label, accept, value, onChange, error }) {
           style={{ display: 'none' }}
         />
         {value ? (
-          <div style={{ fontSize: 13, color: G.text, fontWeight: 500 }}>
-            {value.name}
+          <div style={{ fontSize: 12, color: G.text, fontWeight: 500 }}>
+            ✓ {value.name}
           </div>
         ) : (
           <>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
-            <div style={{ fontSize: 13, color: G.text2 }}>
-              Drop a file here or click to browse
+            <div style={{ fontSize: 24, marginBottom: 6 }}>📄</div>
+            <div style={{ fontSize: 12, color: G.text2 }}>
+              Drop file or click to browse
             </div>
             {accept && (
-              <div style={{ fontSize: 11, color: G.text3, marginTop: 4 }}>{accept}</div>
+              <div style={{ fontSize: 10, color: G.text3, marginTop: 3 }}>{accept}</div>
             )}
           </>
         )}
       </div>
       {error && (
-        <div style={{ fontSize: 12, color: G.red, marginTop: 6 }}>{error}</div>
+        <div style={{ fontSize: 11, color: G.red, marginTop: 6 }}>{error}</div>
       )}
     </div>
   );

@@ -39,16 +39,16 @@ export default function Step4Syllabus() {
     <OnboardingLayout
       step={4}
       title="Upload Syllabus"
-      subtitle="Upload your semester syllabus so we can align your planner with subjects."
+      subtitle="Your syllabus helps us align your learning path with your subjects."
     >
       <form onSubmit={handleSubmit}>
         {error && (
-          <div style={{ padding: '10px 14px', borderRadius: 7, background: G.redBg, border: `1px solid ${G.redBd}`, marginBottom: 16, fontSize: 13, color: G.red }}>
+          <div style={{ padding: '8px 12px', borderRadius: 6, background: G.redBg, border: `1px solid ${G.redBd}`, marginBottom: 14, fontSize: 12, color: G.red }}>
             {error}
           </div>
         )}
-        <FileUpload label="Syllabus (PDF or DOC)" accept=".pdf,.doc,.docx" value={file} onChange={setFile} />
-        <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', justifyContent: 'center' }}>
+        <FileUpload label="Syllabus (PDF or image)" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" value={file} onChange={setFile} />
+        <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', justifyContent: 'center', fontSize: 13 }}>
           {loading ? <><Spinner /> Uploading…</> : 'Continue →'}
         </button>
       </form>

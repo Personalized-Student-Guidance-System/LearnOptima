@@ -41,18 +41,35 @@ export default function Step3Skills() {
   return (
     <OnboardingLayout
       step={3}
-      title="Extra Skills & Projects"
-      subtitle="Add any skills or projects not on your resume."
+      title="Skills & Projects"
+      subtitle="Add any additional skills or projects not covered in your resume."
     >
       <form onSubmit={handleSubmit}>
         {error && (
-          <div style={{ padding: '10px 14px', borderRadius: 7, background: G.redBg, border: `1px solid ${G.redBd}`, marginBottom: 16, fontSize: 13, color: G.red }}>
+          <div style={{ padding: '8px 12px', borderRadius: 6, background: G.redBg, border: `1px solid ${G.redBd}`, marginBottom: 14, fontSize: 12, color: G.red }}>
             {error}
           </div>
         )}
-        <SkillInput label="Extra skills" value={extraSkills} onChange={setExtraSkills} placeholder="e.g. React, Docker" />
-        <SkillInput label="Projects" value={projects} onChange={setProjects} placeholder="e.g. AI Chatbot" />
-        <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
+        
+        <div style={{ marginBottom: 14 }}>
+          <SkillInput 
+            label="Skills" 
+            value={extraSkills} 
+            onChange={setExtraSkills} 
+            placeholder="e.g. React, Docker, AWS" 
+          />
+        </div>
+        
+        <div style={{ marginBottom: 16 }}>
+          <SkillInput 
+            label="Projects" 
+            value={projects} 
+            onChange={setProjects} 
+            placeholder="e.g. AI Chatbot, E-commerce App" 
+          />
+        </div>
+        
+        <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', justifyContent: 'center', fontSize: 13 }}>
           {loading ? <><Spinner /> Saving…</> : 'Continue →'}
         </button>
       </form>
