@@ -10,6 +10,8 @@ function toUserResponse(user, profile = null) {
     email: u.email,
     onboardingCompleted: u.onboardingCompleted ?? false,
     onboardingStep: u.onboardingStep ?? 1,
+    // Prioritize StudentProfile.targetRole (where existing users have their data), fallback to User.targetRole
+    targetRole: (profile?.targetRole) || u.targetRole || null,
   };
   if (profile && u.onboardingCompleted) {
     out.branch = profile.branch;
@@ -55,9 +57,14 @@ async function login(req, res) {
     if (!user || !(await user.comparePassword(password))) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
+    // CRITICAL: Fetch profile for existing users to get targetRole
+    const profile = await StudentProfile.findOne({ userId: user._id });
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: toUserResponse(user) });
+    const userResponse = toUserResponse(user, profile);
+    console.log(`[Auth] Login: user=${user._id}, targetRole=${userResponse.targetRole}`);
+    res.json({ token, user: userResponse });
   } catch (err) {
+    console.error('[Auth] Login error:', err.message);
     res.status(500).json({ message: err.message });
   }
 }

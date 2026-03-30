@@ -23,6 +23,7 @@ const studentProfileSchema = new mongoose.Schema({
   extractedExperience: [String],
   extractedCertifications: [String],
   extraSkills: [String],
+  skillsToLearn: [String],  // New: Skills user wants to prioritize learning
   projects: [String],
   syllabusUrl: { type: String },
   syllabusSubjects: [String],

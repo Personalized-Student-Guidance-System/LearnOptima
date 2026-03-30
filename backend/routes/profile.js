@@ -281,10 +281,11 @@ router.put('/', auth, async (req, res) => {
     } = req.body;
     const userId = req.user.id;
 
-    if (name !== undefined || email !== undefined) {
+    if (name !== undefined || email !== undefined || targetRole !== undefined) {
       const userUpdate = {};
       if (name !== undefined) userUpdate.name = name;
       if (email !== undefined) userUpdate.email = email;
+      if (targetRole !== undefined) userUpdate.targetRole = targetRole;
       await User.findByIdAndUpdate(userId, userUpdate);
     }
 

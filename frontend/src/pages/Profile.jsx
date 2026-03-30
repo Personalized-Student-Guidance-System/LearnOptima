@@ -5,7 +5,7 @@ import { Ic, Spinner } from '../design/ui';
 import { G, ICONS } from '../design/tokens';
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -107,6 +107,8 @@ export default function Profile() {
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      // Refresh user data in AuthContext to update targetRole everywhere
+      await refreshUser();
     } catch (_) {
     } finally {
       setSaving(false);

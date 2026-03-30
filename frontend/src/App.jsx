@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { useStudyTracking } from './hooks/useStudyTracking';
 import { getOnboardingRedirect } from './utils/onboardingRedirect';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -37,9 +38,11 @@ function OnboardingRoute({ children }) {
   return children;
 }
 
-/** Requires login + completed onboarding; main app layout */
+/** Requires login + completed onboarding; main app layout with study tracking */
 function AppShellRoute({ children }) {
   const { user, loading } = useAuth();
+  useStudyTracking(); // Initialize study tracking
+  
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (!user.onboardingCompleted) return <Navigate to={getOnboardingRedirect(user)} replace />;

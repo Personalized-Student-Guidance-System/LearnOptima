@@ -27,6 +27,7 @@ app.use('/api/career', require('./routes/career'));
 app.use('/api/profile', require('./routes/profile'));
 app.use('/api/ml', require('./routes/mlRoutes'));
 app.use('/api/onboarding', require('./routes/onboardingRoutes'));
+app.use('/api/study', require('./routes/study'));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

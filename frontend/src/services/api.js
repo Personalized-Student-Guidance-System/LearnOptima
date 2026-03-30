@@ -4,9 +4,9 @@ const API = axios.create({
   baseURL: 'http://localhost:5000/api',
 });
 
-// Add token to requests
+// Add token to requests (use 'sf_token' to match AuthContext)
 API.interceptors.request.use((req) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('sf_token');
   if (token) req.headers.Authorization = `Bearer ${token}`;
   return req;
 });
@@ -43,11 +43,22 @@ export const saveBurnoutData = (data) => API.post('/burnout', data);
 // Skills
 export const getSkills = () => API.get('/skills');
 export const updateSkills = (data) => API.post('/skills', data);
-export const analyzeSkillGap = (data) => API.post('/skills/analyze', data);
+export const analyzeSkillGap = (role) => API.get('/skills/analyze', { params: { role } });
+export const getSkillLearningPath = (role) => API.get('/skills/learning-path', { params: { role } });
+export const getSkillAIRecommendation = (role) => API.get('/skills/ai-recommendation', { params: { role } });
+export const updateSkillLearningQueue = (skill, action) => API.put('/skills/learning-queue', { skill, action });
 
 // Career
 export const getCareerRoadmap = () => API.get('/career');
 export const updateCareerProgress = (data) => API.post('/career', data);
+
+// Study Time Tracking
+export const startStudySession = () => API.post('/study/session/start');
+export const endStudySession = () => API.post('/study/session/end');
+export const recordTaskTime = (taskId, timeSpent) => API.post('/study/task-time', { taskId, timeSpent });
+export const updateStudySessionPage = (page) => API.post('/study/session/page', { page });
+export const getStudyStats = () => API.get('/study/stats');
+export const getStudyHistory = () => API.get('/study/history');
 
 // Profile
 export const updateProfile = (data) => API.put('/profile', data);

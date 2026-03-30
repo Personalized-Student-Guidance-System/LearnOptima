@@ -12,6 +12,8 @@ const userSchema = new mongoose.Schema({
   skills: [String],
   interests: [String],
   targetRole: String,
+  dailyGoalMinutes: { type: Number, default: 120 }, // 2 hours default
+  weeklyGoalMinutes: { type: Number, default: 840 }, // 14 hours default
   onboardingStep: { type: Number, default: 1 },
   onboardingCompleted: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
