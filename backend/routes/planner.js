@@ -40,8 +40,9 @@ router.delete('/:id', auth, async (req, res) => {
 router.post('/ai-generate', auth, async (req, res) => {
   try {
     const { subjects, examDate, hoursPerDay } = req.body;
-    // Generate AI study plan logic
-    const days = Math.ceil((new Date(examDate) - new Date()) / (1000 * 60 * 60 * 24));
+    console.log('AI Generate request:', { subjects, examDate, hoursPerDay, user: req.user.id });
+    const days = Math.max(Math.ceil((new Date(examDate) - new Date()) / (1000 * 60 * 60 * 24)), 1);
+    console.log('Calculated days:', days);
     const tasks = [];
     subjects.forEach((subject, i) => {
       for (let d = 0; d < days; d++) {
@@ -53,7 +54,7 @@ router.post('/ai-generate', auth, async (req, res) => {
             title: `Study: ${subject}`,
             date,
             startTime: '09:00',
-            endTime: `${9 + Math.min(hoursPerDay, 3)}:00`,
+            endTime: `${9 + hoursPerDay}:00`,
             category: 'study',
             priority: d < 2 ? 'high' : 'medium',
             aiGenerated: true
@@ -61,6 +62,7 @@ router.post('/ai-generate', auth, async (req, res) => {
         }
       }
     });
+    console.log(`Created ${tasks.length} AI tasks`);
     const created = await Task.insertMany(tasks);
     res.json(created);
   } catch (err) { res.status(500).json({ message: err.message }); }

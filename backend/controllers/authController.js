@@ -40,7 +40,7 @@ async function signup(req, res) {
       return res.status(400).json({ message: 'Email already exists' });
     }
     const user = await User.create(payload);
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ token, user: toUserResponse(user) });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -59,7 +59,7 @@ async function login(req, res) {
     }
     // CRITICAL: Fetch profile for existing users to get targetRole
     const profile = await StudentProfile.findOne({ userId: user._id });
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
     const userResponse = toUserResponse(user, profile);
     console.log(`[Auth] Login: user=${user._id}, targetRole=${userResponse.targetRole}`);
     res.json({ token, user: userResponse });

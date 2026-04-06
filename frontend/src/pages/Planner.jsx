@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { getTasks, createTask, updateTask, deleteTask as deleteTaskAPI, generateAIPLan } from '../services/api';
 import { Ic, Spinner } from '../design/ui';
 import { G, ICONS } from '../design/tokens';
 
@@ -18,9 +18,20 @@ export default function Planner() {
   const [showModal,  setShowModal]  = useState(false);
   const [showAI,     setShowAI]     = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [form, setForm] = useState({ title: '', date: '', startTime: '', endTime: '', category: 'study', priority: 'medium', description: '' });
-  const [aiForm, setAiForm] = useState({ subjects: '', examDate: '', hoursPerDay: 4 });
   const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ 
+    title: '', 
+    date: new Date().toISOString().split('T')[0], // Default to today
+    startTime: '', 
+    endTime: '', 
+    category: 'study', 
+    priority: 'medium', 
+    description: '' 
+  });
+  const [aiForm, setAiForm] = useState({ subjects: '', examDate: '', hoursPerDay: 4 });
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('all');
 
   useEffect(() => { fetchTasks(); }, [currentDate]);
 
@@ -28,42 +39,69 @@ export default function Planner() {
     try {
       const start = new Date(currentDate); start.setDate(start.getDate() - 30);
       const end   = new Date(currentDate); end.setDate(end.getDate() + 30);
-      const res = await axios.get(`/planner?start=${start.toISOString()}&end=${end.toISOString()}`);
+      const res = await getTasks({ start: start.toISOString(), end: end.toISOString() });
       setTasks(res.data);
     } catch {}
   };
 
   const addTask = async () => {
+    if (!form.title.trim() || !form.date) {
+      alert('Please fill in the title and date');
+      return;
+    }
     setSaving(true);
     try {
-      await axios.post('/planner', form);
+      await createTask(form);
       setShowModal(false);
-      setForm({ title: '', date: '', startTime: '', endTime: '', category: 'study', priority: 'medium', description: '' });
+      setForm({ 
+        title: '', 
+        date: new Date().toISOString().split('T')[0], 
+        startTime: '', 
+        endTime: '', 
+        category: 'study', 
+        priority: 'medium', 
+        description: '' 
+      });
       fetchTasks();
-    } catch {} finally { setSaving(false); }
+    } catch (err) {
+      console.error('Error adding task:', err);
+      alert('Failed to add task. Please try again.');
+    } finally { setSaving(false); }
   };
 
   const toggleTask = async (task) => {
     try {
-      await axios.put(`/planner/${task._id}`, { completed: !task.completed });
+      await updateTask(task._id, { completed: !task.completed });
       fetchTasks();
     } catch {}
   };
 
   const deleteTask = async (id) => {
-    try { await axios.delete(`/planner/${id}`); fetchTasks(); } catch {}
+    try { await deleteTaskAPI(id); fetchTasks(); } catch {}
   };
+
+  const clearCompleted = async () => {
+    const completedTasks = todayTasks.filter(t => t.completed);
+    for (const task of completedTasks) {
+      await deleteTaskAPI(task._id);
+    }
+    fetchTasks();
+  };
+  
 
   const generateAI = async () => {
     setGenerating(true);
+    setError('');
     try {
-      await axios.post('/planner/ai-generate', {
+      await generateAIPLan({
         subjects: aiForm.subjects.split(',').map(s => s.trim()),
         examDate: aiForm.examDate,
         hoursPerDay: Number(aiForm.hoursPerDay)
       });
       setShowAI(false); fetchTasks();
-    } catch {} finally { setGenerating(false); }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to generate plan');
+    } finally { setGenerating(false); }
   };
 
   const getWeekDays = () => {
@@ -72,8 +110,32 @@ export default function Planner() {
     return Array.from({ length: 7 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return d; });
   };
 
-  const todayTasks = tasks.filter(t => new Date(t.date).toDateString() === currentDate.toDateString());
-  const completed  = todayTasks.filter(t => t.completed).length;
+  const parseMinutes = (time = '') => {
+    const [hours, mins] = time.split(':').map(Number);
+    return Number.isFinite(hours) && Number.isFinite(mins) ? hours * 60 + mins : null;
+  };
+
+  const todayTasks = tasks.filter(t => {
+    const taskDate = new Date(t.date);
+    return taskDate.getFullYear() === currentDate.getFullYear() && taskDate.getMonth() === currentDate.getMonth() && taskDate.getDate() === currentDate.getDate();
+  });
+
+  const visibleTasks = todayTasks.filter(t => {
+    if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
+    return !search || t.title.toLowerCase().includes(search.toLowerCase()) || t.category.toLowerCase().includes(search.toLowerCase());
+  });
+
+  const completed  = visibleTasks.filter(t => t.completed).length;
+  const remaining  = visibleTasks.filter(t => !t.completed).length;
+
+  const totalMinutes = visibleTasks.reduce((sum, task) => {
+    const start = parseMinutes(task.startTime);
+    const end = parseMinutes(task.endTime);
+    return sum + (start !== null && end !== null && end > start ? end - start : 0);
+  }, 0);
+
+  const todayHoursPlanned = Math.round((totalMinutes / 60) * 10) / 10;
+  const suggestedTask = visibleTasks.find(t => !t.completed && t.priority === 'high') || visibleTasks.find(t => !t.completed) || visibleTasks[0] || null;
 
   return (
     <div className="page-enter" style={{ padding: '24px 28px', maxWidth: 1100 }}>
@@ -84,6 +146,50 @@ export default function Planner() {
           <p style={{ fontSize: 12, color: G.text2, marginTop: 2 }}>AI-generated study plans based on your goals and schedule</p>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {['all', 'high', 'medium', 'low'].map(level => (
+              <button
+                key={level}
+                onClick={() => setPriorityFilter(level)}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: 5,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: priorityFilter === level ? G.white : G.bg2,
+                  color: priorityFilter === level ? G.text : G.text2,
+                  fontFamily: "'Plus Jakarta Sans'",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  boxShadow: priorityFilter === level ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.15s',
+                  textTransform: 'capitalize'
+                }}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
+          {/* Search */}
+          <div style={{ position: 'relative' }}>
+            <Ic path={ICONS.filter} size={14} color={G.text3} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }} />
+            <input
+              type="text"
+              placeholder="Search tasks..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                padding: '7px 12px 7px 32px',
+                borderRadius: 6,
+                border: `1px solid ${G.border}`,
+                background: G.white,
+                fontSize: 13,
+                color: G.text,
+                width: 200,
+                outline: 'none'
+              }}
+            />
+          </div>
           {/* View toggle */}
           <div style={{ display: 'flex', background: G.bg2, borderRadius: 6, padding: 2, border: `1px solid ${G.border}` }}>
             {['day', 'week', 'month'].map(v => (
@@ -94,6 +200,9 @@ export default function Planner() {
           </div>
           <button className="btn btn-secondary btn-sm" onClick={() => setShowAI(true)}>
             <Ic path={ICONS.refresh} size={12} /> AI Generate
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={clearCompleted} disabled={completed === 0}>
+            <Ic path={ICONS.trash} size={12} /> Clear Completed
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>
             <Ic path={ICONS.plus} size={12} /> New Task
@@ -113,7 +222,14 @@ export default function Planner() {
       {view === 'week' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 8 }}>
           {getWeekDays().map((day, i) => {
-            const dayTasks = tasks.filter(t => new Date(t.date).toDateString() === day.toDateString());
+            const dayTasks = tasks.filter(t => {
+  const taskDate = new Date(t.date);
+  return (
+    taskDate.getFullYear() === day.getFullYear() &&
+    taskDate.getMonth() === day.getMonth() &&
+    taskDate.getDate() === day.getDate()
+  );
+});
             const isToday  = day.toDateString() === new Date().toDateString();
             return (
               <div key={i} className="card" style={{ border: isToday ? `1.5px solid ${G.blue}` : `1px solid ${G.border}`, overflow: 'hidden' }}>
@@ -125,7 +241,12 @@ export default function Planner() {
                   {dayTasks.map((t, j) => (
                     <div key={j} style={{ padding: '5px 8px', borderRadius: 4, background: G.bg, marginBottom: 5, borderLeft: `2px solid ${priColor[t.priority]}` }}>
                       <div style={{ fontSize: 11, fontWeight: 500, color: G.text, lineHeight: 1.3 }}>{t.title.split(' ').slice(0,4).join(' ')}{t.title.split(' ').length > 4 ? '…' : ''}</div>
-                      <div style={{ fontSize: 10, color: G.text3, marginTop: 2 }}>{t.startTime}</div>
+                      <div style={{ fontSize: 9, color: G.text3 }}>
+  {t.category}
+</div>
+                      <div style={{ fontSize: 10, color: G.text3, marginTop: 2 }}>
+  {t.startTime} - {t.endTime} • {t.priority.toUpperCase()}
+</div>
                     </div>
                   ))}
                   {dayTasks.length === 0 && <div style={{ fontSize: 11, color: G.text3, textAlign: 'center', padding: '8px 0' }}>Free</div>}
@@ -158,8 +279,33 @@ export default function Planner() {
             {todayTasks.length === 0 ? (
               <div style={{ padding: '40px 20px', textAlign: 'center' }}>
                 <div style={{ fontSize: 11, color: G.text3 }}>No tasks for this day</div>
+                      </div>
+      ) : view === 'month' ? (
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 8 }}>
+          {Array.from({ length: new Date(currentDate.getFullYear(), currentDate.getMonth()+1, 0).getDate() }, (_, i) => {
+            const day = new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1);
+            const dayTasks = tasks.filter(t => new Date(t.date).toDateString() === day.toDateString());
+
+            return (
+              <div key={i} className="card" style={{ minHeight: 110, padding: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>{day.getDate()}</div>
+
+                {dayTasks.slice(0,3).map((t,j)=>(
+                  <div key={j} style={{ fontSize: 10, marginBottom: 4, color: G.text3 }}>
+                    • {t.title.slice(0,18)}
+                  </div>
+                ))}
+
+                {dayTasks.length > 3 && (
+                  <div style={{ fontSize: 10, color: G.text3 }}>+ more</div>
+                )}
               </div>
-            ) : (
+            );
+          })}
+        </div>
+
+      ) : (
               todayTasks.map((t) => (
                 <div key={t._id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '13px 18px', borderBottom: `1px solid ${G.border}`, cursor: 'pointer', opacity: t.completed ? 0.5 : 1, transition: 'background 0.1s' }}
                   onMouseOver={e => e.currentTarget.style.background = G.bg}
@@ -189,6 +335,37 @@ export default function Planner() {
           {/* Sidebar */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="card card-md">
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Today's Progress</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="progress-track" style={{ height: 6 }}>
+                    <div className="progress-bar" style={{ width: `${visibleTasks.length ? (completed/visibleTasks.length)*100 : 0}%`, background: completed === visibleTasks.length && visibleTasks.length > 0 ? G.green : G.blue }} />
+                  </div>
+                </div>
+                <span className="mono" style={{ fontSize: 14, fontWeight: 700, color: G.text }}>{completed}/{visibleTasks.length}</span>
+              </div>
+              <div style={{ fontSize: 11, color: G.text3, marginBottom: 10 }}>
+                {completed === visibleTasks.length && visibleTasks.length > 0 ? 'All tasks completed! 🎉' : 
+                 visibleTasks.length === 0 ? 'No tasks for today' : 
+                 `${remaining} tasks remaining`}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 11, color: G.text3 }}>
+                <div>{todayHoursPlanned}h planned</div>
+                <div>{visibleTasks.filter(t => t.aiGenerated).length} AI tasks</div>
+              </div>
+            </div>
+            {suggestedTask && (
+              <div className="card card-md">
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Suggested Next Task</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: G.text, marginBottom: 8 }}>{suggestedTask.title}</div>
+                <div style={{ fontSize: 11, color: G.text3, marginBottom: 10 }}>{suggestedTask.category} • {suggestedTask.priority}</div>
+                {suggestedTask.startTime && suggestedTask.endTime && <div style={{ fontSize: 11, color: G.text3, marginBottom: 12 }}>{suggestedTask.startTime} - {suggestedTask.endTime}</div>}
+                <button className="btn btn-primary btn-sm" style={{ width: '100%' }} onClick={() => toggleTask(suggestedTask)}>
+                  {suggestedTask.completed ? 'Undo Complete' : 'Mark Complete'}
+                </button>
+              </div>
+            )}
+            <div className="card card-md">
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Weekly Summary</div>
               {[
                 { label: 'Total tasks', val: `${tasks.length}` },
@@ -213,6 +390,7 @@ export default function Planner() {
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 20 }}>Add New Task</div>
             <div style={{ marginBottom: 12 }}><label className="field-label">Title</label><input className="input" value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="e.g. Study Chapter 5" /></div>
             <div style={{ marginBottom: 12 }}><label className="field-label">Date</label><input className="input" type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></div>
+            <div style={{ marginBottom: 12 }}><label className="field-label">Description (optional)</label><textarea className="input" value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="Additional details..." rows={2} /></div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
               <div><label className="field-label">Start Time</label><input className="input" type="time" value={form.startTime} onChange={e => setForm({...form, startTime: e.target.value})} /></div>
               <div><label className="field-label">End Time</label><input className="input" type="time" value={form.endTime} onChange={e => setForm({...form, endTime: e.target.value})} /></div>
@@ -245,6 +423,7 @@ export default function Planner() {
           <div className="card card-lg" style={{ width: 440, animation: 'fadeSlideUp 0.2s ease' }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>🤖 AI Study Plan Generator</div>
             <div style={{ fontSize: 12, color: G.text2, marginBottom: 20 }}>Generate an optimized study schedule based on your subjects and exam date</div>
+            {error && <div style={{ fontSize: 12, color: G.red, marginBottom: 12, padding: '8px 12px', background: G.redBg, border: `1px solid ${G.redBd}`, borderRadius: 4 }}>{error}</div>}
             <div style={{ marginBottom: 12 }}><label className="field-label">Subjects (comma-separated)</label><input className="input" value={aiForm.subjects} onChange={e => setAiForm({...aiForm, subjects: e.target.value})} placeholder="Math, Physics, Chemistry" /></div>
             <div style={{ marginBottom: 12 }}><label className="field-label">Exam Date</label><input className="input" type="date" value={aiForm.examDate} onChange={e => setAiForm({...aiForm, examDate: e.target.value})} /></div>
             <div style={{ marginBottom: 20 }}>
