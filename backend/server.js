@@ -12,9 +12,16 @@ const mlUrl = process.env.ML_SERVICE_URL;
 console.log('[Config] Cloudinary:', hasCloudinary ? 'configured' : 'not set');
 console.log('[Config] ML_SERVICE_URL:', mlUrl || 'not set (Node parser will be used for resume/syllabus)');
 
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(process.env.MONGO_URI, {
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+  family: 4
+})
   .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error(err));
+  .catch(err => {
+    console.error('MongoDB connection error:', err.message);
+    process.exit(1);
+  });
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/authRoutes', require('./routes/authRoutes'));

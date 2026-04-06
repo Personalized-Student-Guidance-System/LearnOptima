@@ -12,6 +12,7 @@ const studentProfileSchema = new mongoose.Schema({
   semester: { type: Number },
   college: { type: String },
   targetRole: { type: String },
+  customRole: { type: String }, // For users who select "Other"
   bio: { type: String },
   cgpa: { type: Number },
   goals: [goalSchema],
@@ -30,6 +31,14 @@ const studentProfileSchema = new mongoose.Schema({
   syllabusStructure: { type: mongoose.Schema.Types.Mixed, default: {} },
   timetableUrl: { type: String },
   timetable: { type: mongoose.Schema.Types.Mixed },
+  burnoutMetrics: {
+    studyHours: { type: Number, min: 0 },
+    sleepHours: { type: Number, min: 0 },
+    deadlinePressure: { type: Number, min: 0, max: 10 },
+    academicLoad: { type: Number, min: 0, max: 10 },
+    exerciseTime: { type: Number, min: 0 },
+    socialTime: { type: Number, min: 0 }
+  },
 }, { timestamps: true, collection: 'studentprofiles' });
 
 module.exports = mongoose.model('StudentProfile', studentProfileSchema);

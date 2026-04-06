@@ -4,6 +4,7 @@ const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
 const mongoose = require('mongoose');
 const resourceScraper = require('../services/resourceScraper');
+const careerScraper = require('../services/careerScraper');
 
 // Checklist completion schema
 const checklistSchema = new mongoose.Schema({
@@ -258,17 +259,127 @@ const roadmaps = {
   }
 };
 
+// Generate dynamic roadmap for any role (including custom roles)
+async function generateDynamicRoadmap(role, userId) {
+  try {
+    console.log(`[DynamicRoadmap] Generating roadmap for role: ${role}`);
+    
+    // Try to import the skill resources scraper
+    const path = require('path');
+    const scraperPath = path.join(__dirname, '../ml/skill_resources_scraper.py');
+    
+    // Since we can't directly import Python, we'll create a basic dynamic structure
+    // and fetch skills from a predefined mapping or use a fallback
+    
+    const skillsByRole = {
+      'quant engineer': ['Python', 'C++', 'Financial Mathematics', 'Statistics', 'Machine Learning', 'Data Analysis', 'SQL', 'Linux', 'Algorithms', 'Risk Management'],
+      'blockchain developer': ['Solidity', 'Ethereum', 'Smart Contracts', 'Web3.js', 'DeFi', 'Cryptography', 'JavaScript', 'React', 'Node.js', 'Distributed Systems'],
+      'ux designer': ['Figma', 'User Research', 'Wireframing', 'Prototyping', 'UI Design', 'Design Systems', 'Usability Testing', 'Adobe XD', 'HTML/CSS'],
+      'game developer': ['C#', 'Unity', 'Unreal Engine', 'Game Physics', '3D Graphics', 'Networking', 'Game Design', 'C++', 'Python'],
+      'cloud architect': ['AWS', 'Azure', 'GCP', 'Kubernetes', 'Docker', 'Microservices', 'System Design', 'Security', 'Networking', 'Infrastructure as Code'],
+      'cybersecurity engineer': ['Network Security', 'Cryptography', 'Penetration Testing', 'Malware Analysis', 'Linux Security', 'Python', 'C', 'Firewalls', 'SSL/TLS'],
+      'data engineer': ['Python', 'SQL', 'Apache Spark', 'Kafka', 'ETL', 'Data Warehousing', 'AWS/GCP', 'Hadoop', 'Scala', 'NoSQL'],
+      'mobile app developer': ['React Native', 'Swift', 'Kotlin', 'Flutter', 'Android', 'iOS', 'Firebase', 'REST API', 'Mobile UI/UX'],
+      'ios developer': ['Swift', 'Objective-C', 'iOS SDK', 'Xcode', 'CoreData', 'SwiftUI', 'Networking', 'App Architecture'],
+      'android developer': ['Kotlin', 'Java', 'Android Studio', 'Android SDK', 'Material Design', 'Firebase', 'Room Database', 'MVVM Pattern'],
+      'embedded systems engineer': ['C', 'C++', 'Assembly', 'Microcontrollers', 'RTOS', 'Hardware Design', 'IoT', 'Firmware Development'],
+      'devops engineer': ['Docker', 'Kubernetes', 'CI/CD', 'Linux', 'AWS/GCP/Azure', 'Infrastructure as Code', 'Terraform', 'Ansible', 'Monitoring'],
+      'site reliability engineer': ['Python', 'Go', 'Linux', 'Kubernetes', 'Prometheus', 'ELK Stack', 'Cloud Platforms', 'Incident Response'],
+      'platform engineer': ['Kubernetes', 'Docker', 'Internal Tools', 'System Design', 'API Design', 'Infrastructure', 'Monitoring', 'Developer Experience'],
+      'ml researcher': ['Mathematics', 'Python', 'TensorFlow/PyTorch', 'Research Papers', 'Statistical Analysis', 'Deep Learning', 'Computer Vision/NLP'],
+      'nlp engineer': ['Natural Language Processing', 'Transformers', 'BERT', 'GPT', 'Python', 'TensorFlow/PyTorch', 'Text Processing'],
+      'computer vision engineer': ['OpenCV', 'TensorFlow', 'Python', 'Image Processing', 'Deep Learning', 'CNN', 'Object Detection', 'Video Analysis'],
+      'product manager': ['Product Strategy', 'Data Analysis', 'User Research', 'Communication', 'Roadmap Planning', 'Business Acumen', 'Metrics & Analytics'],
+      'solutions architect': ['System Design', 'Cloud Architecture', 'AWS/Azure/GCP', 'Consulting', 'Requirements Analysis', 'Problem Solving'],
+      'technical writer': ['Technical Documentation', 'API Documentation', 'Markdown', 'Figma', 'Communication', 'Writing Skills', 'Technical Knowledge'],
+      'security engineer': ['Cryptography', 'Network Security', 'Secure Coding', 'Vulnerability Assessment', 'Penetration Testing', 'Risk Management'],
+      'fintech developer': ['Java/Python', 'Spring Boot', 'Microservices', 'APIs', 'Blockchain', 'Trading Systems', 'Financial Protocols'],
+      'ar/vr developer': ['Unity', 'Unreal Engine', 'C#/C++', 'ARKit', 'ARCore', '3D Graphics', 'Real-time Rendering', 'Spatial Computing'],
+      'robotics engineer': ['C++', 'Python', 'ROS', 'Computer Vision', 'Control Systems', 'Mechanics', 'Machine Learning', 'Embedded Systems'],
+      'data analyst': ['SQL', 'Python/R', 'Tableau', 'Power BI', 'Excel', 'Statistics', 'Data Visualization', 'Business Intelligence'],
+      'business analyst': ['Requirements Gathering', 'Data Analysis', 'SQL', 'Excel', 'Process Improvement', 'Documentation', 'Stakeholder Management'],
+      'reliability engineer': ['Monitoring', 'Log Analysis', 'System Performance', 'Incident Response', 'Linux', 'Cloud Platforms', 'Automation'],
+    };
+    
+    // Get skills for the role (case-insensitive matching)
+    const roleLower = role.toLowerCase();
+    let requiredSkills = [];
+    
+    // First try exact match
+    if (skillsByRole[roleLower]) {
+      requiredSkills = skillsByRole[roleLower];
+    } else {
+      // Try partial match
+      for (const [key, skills] of Object.entries(skillsByRole)) {
+        if (roleLower.includes(key) || key.includes(roleLower)) {
+          requiredSkills = skills;
+          break;
+        }
+      }
+    }
+    
+    // If no match found, create a generic roadmap with basic skills
+    if (requiredSkills.length === 0) {
+      console.log(`[DynamicRoadmap] No predefined skills for "${role}", creating generic roadmap`);
+      requiredSkills = ['Fundamentals', 'Core Concepts', 'Programming', 'Tools & Technologies', 'Advanced Topics', 'Project Work', 'Specialization', 'Industry Skills'];
+    }
+    
+    // Organize skills into 8 semesters/phases
+    const semesters = [];
+    const skillsPerPhase = Math.ceil(requiredSkills.length / 8);
+    
+    for (let phase = 0; phase < 8; phase++) {
+      const startIdx = phase * skillsPerPhase;
+      const endIdx = Math.min(startIdx + skillsPerPhase, requiredSkills.length);
+      const phaseSkills = requiredSkills.slice(startIdx, endIdx);
+      
+      const phases = ['Foundation', 'Core Concepts', 'Development', 'Advanced', 'Specialization', 'Integration', 'Mastery', 'Excellence'];
+      
+      semesters.push({
+        sem: phase + 1,
+        title: phases[phase] || `Phase ${phase + 1}`,
+        duration: '3-4 weeks',
+        skills: phaseSkills,
+        tasks: phaseSkills.map(skill => `Learn and practice "${skill}"`)
+      });
+    }
+    
+    console.log(`[DynamicRoadmap] Generated ${semesters.length} phases with ${requiredSkills.length} total skills`);
+    return { semesters, isCustom: true };
+  } catch (err) {
+    console.error('[DynamicRoadmap] Error:', err.message);
+    return null;
+  }
+}
+
 // Get personalized roadmap based on user's skills with scraped resources
 async function getPersonalizedRoadmap(userId, role) {
   try {
-    const baseRoadmap = roadmaps[role] || roadmaps['Software Engineer'];
+    // Check if role exists in predefined roadmaps
+    let baseRoadmap = roadmaps[role];
+    let isCustomRole = false;
+    
+    // If role not found in predefined list, generate dynamic roadmap
+    if (!baseRoadmap) {
+      console.log(`[Roadmap] Role "${role}" not predefined, generating dynamic roadmap`);
+      const dynamicRoadmap = await generateDynamicRoadmap(role, userId);
+      if (dynamicRoadmap) {
+        baseRoadmap = dynamicRoadmap;
+        isCustomRole = true;
+      } else {
+        // Fallback to Software Engineer roadmap
+        baseRoadmap = roadmaps['Software Engineer'];
+        console.log('[Roadmap] Falling back to Software Engineer roadmap');
+      }
+    }
+    
     const profile = await StudentProfile.findOne({ userId });
     
     // Get user's actual skills from StudentProfile
     const userSkills = [...(profile?.extractedSkills || []), ...(profile?.extraSkills || [])];
     const userSkillsLower = userSkills.map(s => s.toLowerCase());
     
-    console.log(`[Roadmap] Building for ${role}: user has ${userSkills.length} skills`);
+    console.log(`[Roadmap] Building for ${role}: user has ${userSkills.length} skills, isCustomRole=${isCustomRole}`);
     
     const personalizedRoadmap = JSON.parse(JSON.stringify(baseRoadmap));
     
@@ -284,39 +395,51 @@ async function getPersonalizedRoadmap(userId, role) {
         const hasSkill = userSkillsLower.some(s => s.includes(skillLower) || skillLower.includes(s));
         
         try {
-          // Get resources from web scraper (with timeout to avoid slow requests)
-          const resources = await Promise.race([
-            resourceScraper.getResourcesForSkill(skill, {
-              limit: 2,  // Compact: 2 resources per skill
-              platforms: ['coursera', 'udemy', 'youtube', 'geeksforgeeks']
-            }),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Scraping timeout')), 5000)
-            )
-          ]);
+// Skip scraping for speed - use generic resources always
+          let resources = [
+            { 
+              title: `YouTube: Learn ${skill}`, 
+              url: `https://www.youtube.com/results?search_query=${encodeURIComponent('learn ' + skill)}`,
+              platform: 'YouTube'
+            },
+            { 
+              title: `Udemy: ${skill} Courses`, 
+              url: `https://www.udemy.com/courses/search/?q=${encodeURIComponent(skill)}`,
+              platform: 'Udemy'
+            },
+            { 
+              title: `Coursera: ${skill}`, 
+              url: `https://www.coursera.org/search?query=${encodeURIComponent(skill)}`,
+              platform: 'Coursera'
+            }
+          ];
+          console.log(`[Roadmap] Fast resources for ${skill}`);
           
-          const resourcesArray = Array.isArray(resources) ? resources : [];
           semester.resources[skillIndex] = {
             skill,
             hasSkill,  // Mark if user already has this skill
-            resources: resourcesArray.slice(0, 2)  // Limit to 2 resources
+            resources: resources.slice(0, 3)  // Limit to 3 resources
           };
-          console.log(`[Roadmap] Sem ${semester.sem} skill "${skill}": ${resourcesArray.length} resources found`);
+          console.log(`[Roadmap] Sem ${semester.sem} skill "${skill}": ${resources.length} resources found`);
         } catch (error) {
-          console.warn(`[Roadmap] Failed to scrape resources for ${skill}:`, error.message);
-          // Fallback to basic resources if scraping fails
+          console.warn(`[Roadmap] Error processing ${skill}:`, error.message);
+          // Fallback to basic resources
           semester.resources[skillIndex] = {
             skill,
             hasSkill,
             resources: [
-              { title: `Learn ${skill}`, url: `https://www.youtube.com/results?search_query=${encodeURIComponent('learn ' + skill)}`, platform: 'YouTube' }
+              { 
+                title: `Learn ${skill}`, 
+                url: `https://www.youtube.com/results?search_query=${encodeURIComponent('learn ' + skill)}`,
+                platform: 'YouTube'
+              }
             ]
           };
         }
       }
     }
     
-    console.log(`[Roadmap] Complete - ${personalizedRoadmap.semesters.length} semesters built`);
+    console.log(`[Roadmap] Complete - ${personalizedRoadmap.semesters.length} semesters built with resources`);
     return personalizedRoadmap;
   } catch (err) {
     console.error('Error generating personalized roadmap:', err);
@@ -401,6 +524,50 @@ router.get('/', auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+});
+
+// API: Get LIVE scraped jobs & skills for target role (dynamic)
+router.get('/live-jobs', auth, async (req, res) => {
+  try {
+    const { role = 'Software Engineer', location = 'India', limit = 10 } = req.query;
+    console.log(`[Career API] Scraping live jobs for ${role} (${location})`);
+    
+    const data = await careerScraper.getDynamicData(role, location, parseInt(limit));
+    
+    // Use real jobs if available, fallback to derived
+    let jobs = data.jobs || data.extracted_skills?.slice(0, 8).map(skill => 
+      `${role} - ${skill} Specialist`
+    ) || [];
+    
+    // Parse/sort deadlines (ISO date or null)
+    jobs = jobs.map(job => ({
+      ...job,
+      deadlineParsed: job.deadline ? new Date(job.deadline) : null
+    })).sort((a, b) => {
+      const da = a.deadlineParsed || new Date('2099-01-01');
+      const db = b.deadlineParsed || new Date('2099-01-01');
+      return da - db; // Ascending (urgent first)
+    });
+    
+    res.json({
+      role,
+      location,
+      jobs,
+      skills: data.extracted_skills || [],
+      resources: data.resources || {},
+      source: data.source,
+      scrapedAt: new Date().toISOString()
+    });
+
+  } catch (err) {
+    console.error('[Career API] Live-jobs error:', err.message);
+    res.status(500).json({ message: 'Scraping unavailable, try again later' });
+  }
+});
+
+// Legacy endpoint (deprecated - use /live-jobs)
+router.get('/job-roles', auth, async (req, res) => {
+  res.redirect(307, `/api/career/live-jobs?role=${req.query.role || 'Software Engineer'}`);
 });
 
 module.exports = router;

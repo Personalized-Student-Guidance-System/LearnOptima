@@ -13,6 +13,7 @@ export default function Profile() {
     branch: '',
     semester: '',
     targetRole: '',
+    customRole: '',
     bio: '',
     cgpa: '',
     skills: [],
@@ -33,6 +34,7 @@ export default function Profile() {
   });
   const [newSkill, setNewSkill] = useState('');
   const [newInterest, setNewInterest] = useState('');
+  const [customRoleInput, setCustomRoleInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -49,9 +51,11 @@ export default function Profile() {
       cgpa: d.cgpa != null && d.cgpa !== '' ? String(d.cgpa) : '',
       skills: d.skills || [],
       interests: d.interests || [],
+      customRole: d.customRole || '',
       syllabusStructure: d.syllabusStructure || { subjects: [] },
       parsingInfo: d.parsingInfo || null,
     }));
+    setCustomRoleInput(d.customRole || '');
   };
 
   const loadProfile = async (isManualRefresh = false) => {
@@ -93,20 +97,31 @@ export default function Profile() {
   const save = async () => {
     setSaving(true);
     try {
-      await axios.put('/profile', {
+      const payload = {
         name: form.name,
         email: form.email,
         college: form.college,
         branch: form.branch,
         semester: form.semester === '' ? undefined : Number(form.semester),
         targetRole: form.targetRole,
+        customRole: form.targetRole === 'Other' ? customRoleInput : '',
         bio: form.bio,
         cgpa: form.cgpa === '' ? undefined : form.cgpa,
         skills: form.skills,
         interests: form.interests,
-      });
+      };
+      
+      const response = await axios.put('/profile', payload);
+      
+      // Update form state with the saved data
+      setForm((f) => ({
+        ...f,
+        customRole: form.targetRole === 'Other' ? customRoleInput : '',
+      }));
+      
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      
       // Refresh user data in AuthContext to update targetRole everywhere
       await refreshUser();
     } catch (_) {
@@ -121,6 +136,46 @@ export default function Profile() {
     setter('');
   };
   const removeTag = (key, val) => setForm((f) => ({ ...f, [key]: (f[key] || []).filter((v) => v !== val) }));
+
+  const saveCustomRole = async () => {
+    if (!customRoleInput.trim()) return;
+    
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name,
+        email: form.email,
+        college: form.college,
+        branch: form.branch,
+        semester: form.semester === '' ? undefined : Number(form.semester),
+        targetRole: customRoleInput.trim(),  // Save custom role directly as targetRole
+        customRole: customRoleInput.trim(),   // Also save to customRole for reference
+        bio: form.bio,
+        cgpa: form.cgpa === '' ? undefined : form.cgpa,
+        skills: form.skills,
+        interests: form.interests,
+      };
+      
+      await axios.put('/profile', payload);
+      
+      // Update form state with the saved custom role
+      setForm((f) => ({
+        ...f,
+        targetRole: customRoleInput.trim(),
+        customRole: customRoleInput.trim(),
+      }));
+      
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      
+      // Refresh user data in AuthContext
+      await refreshUser();
+    } catch (err) {
+      console.error('Failed to save custom role:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const reparseDocuments = async () => {
     setReparsing(true);
@@ -167,7 +222,7 @@ export default function Profile() {
   };
 
   const initials = form.name ? form.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2) : 'S';
-  const roles = ['Software Engineer', 'Data Scientist', 'DevOps Engineer', 'Frontend Developer', 'Backend Developer', 'ML Engineer', 'Machine Learning Engineer', 'Cybersecurity Analyst', 'Product Manager'];
+  const roles = ['Software Engineer', 'Data Scientist', 'DevOps Engineer', 'Frontend Developer', 'Backend Developer', 'ML Engineer', 'Machine Learning Engineer', 'Cybersecurity Analyst', 'Product Manager', 'Other'];
 
   const subjects = form.syllabusStructure?.subjects || [];
 
@@ -288,6 +343,31 @@ export default function Profile() {
                     <option key={r} value={r}>{r}</option>
                   ))}
                 </select>
+                {form.targetRole === 'Other' && (
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                    <input 
+                      className="input" 
+                      style={{ flex: 1 }}
+                      type="text" 
+                      value={customRoleInput} 
+                      onChange={(e) => setCustomRoleInput(e.target.value)} 
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && customRoleInput.trim()) {
+                          saveCustomRole();
+                        }
+                      }}
+                      placeholder="Enter your target role (e.g., UX Designer)"
+                    />
+                    <button 
+                      type="button" 
+                      className="btn btn-secondary btn-sm"
+                      onClick={saveCustomRole}
+                      disabled={!customRoleInput.trim() || saving}
+                    >
+                      {saving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
             <div><label className="field-label">Bio</label><textarea className="input" rows={2} style={{ resize: 'vertical' }} value={form.bio} onChange={set('bio')} /></div>

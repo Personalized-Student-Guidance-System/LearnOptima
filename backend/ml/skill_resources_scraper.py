@@ -1,254 +1,463 @@
-import requests
-from bs4 import BeautifulSoup
+"""
+skill_resources_scraper.py
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Scrapes required skills for a target role from live job postings, then maps
+each skill to curated learning resources structured in three tiers.
+
+KEY CHANGES:
+  1. Dynamic AI fallback for niche roles (Quantum Engineer, etc.)
+  2. build_phases() no longer emits a `sem` key — phases map by index to
+     PhaseCard.jsx's SKILL_LEVELS array:
+       index 0 = Beginner, 1 = Elementary, 2 = Intermediate,
+       index 3 = Advanced,  4 = Expert,     5 = Master
+"""
+
+import argparse
 import json
-from typing import List, Dict
+import os
+import re
+from typing import Dict, List, Optional
+
+import anthropic
+
+from web_scraper import JobScraper
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Tiered resource catalogue
+# ─────────────────────────────────────────────────────────────────────────────
+TIERED_RESOURCES: Dict[str, Dict[str, List[Dict]]] = {
+    "Qiskit": {
+        "beginner": [
+            {"title": "Qiskit Textbook – Learn Quantum Computing",  "url": "https://learning.quantum.ibm.com/"},
+            {"title": "IBM Quantum Lab – free cloud circuits",       "url": "https://quantum.ibm.com/"},
+            {"title": "YouTube – Qiskit channel",                   "url": "https://www.youtube.com/@qiskit"},
+        ],
+        "intermediate": [
+            {"title": "Qiskit Algorithms module docs",             "url": "https://qiskit.org/ecosystem/algorithms/"},
+            {"title": "Variational Quantum Eigensolver tutorial",  "url": "https://learning.quantum.ibm.com/tutorial/variational-quantum-eigensolver"},
+            {"title": "Qiskit Runtime primitives guide",           "url": "https://docs.quantum.ibm.com/api/qiskit-ibm-runtime"},
+        ],
+        "advanced": [
+            {"title": "Error Mitigation – IBM",                    "url": "https://learning.quantum.ibm.com/course/fundamentals-of-quantum-algorithms/quantum-error-correction"},
+            {"title": "QAOA tutorial",                             "url": "https://learning.quantum.ibm.com/tutorial/quantum-approximate-optimization-algorithm"},
+            {"title": "Qiskit Nature – quantum chemistry",         "url": "https://qiskit-community.github.io/qiskit-nature/"},
+        ],
+    },
+    "Cirq": {
+        "beginner": [
+            {"title": "Cirq Official Docs",                        "url": "https://quantumai.google/cirq/start"},
+            {"title": "Google Quantum AI tutorials",               "url": "https://quantumai.google/learn/tutorials"},
+        ],
+        "intermediate": [
+            {"title": "Cirq noise & error models",                 "url": "https://quantumai.google/cirq/noise"},
+            {"title": "OpenFermion + Cirq chemistry",              "url": "https://quantumai.google/openfermion"},
+        ],
+        "advanced": [
+            {"title": "TensorFlow Quantum",                        "url": "https://www.tensorflow.org/quantum"},
+        ],
+    },
+    "Quantum Mechanics": {
+        "beginner": [
+            {"title": "MIT OCW – 8.04 Quantum Physics I",          "url": "https://ocw.mit.edu/courses/8-04-quantum-physics-i-spring-2016/"},
+            {"title": "Quantum Country – spaced-repetition book",  "url": "https://quantum.country/"},
+        ],
+        "intermediate": [
+            {"title": "Griffiths – Intro to Quantum Mechanics",    "url": "https://www.cambridge.org/us/universitypress/subjects/physics/quantum-physics-quantum-information-and-quantum-computation/introduction-quantum-mechanics-3rd-edition"},
+            {"title": "Perimeter Institute lectures",              "url": "https://pirsa.org/"},
+        ],
+        "advanced": [
+            {"title": "Nielsen & Chuang (10th anniversary ed.)",   "url": "https://www.cambridge.org/us/universitypress/subjects/physics/quantum-physics-quantum-information-and-quantum-computation/quantum-computation-and-quantum-information-10th-anniversary-edition"},
+            {"title": "Preskill – Caltech lecture notes",          "url": "http://theory.caltech.edu/~preskill/ph229/"},
+        ],
+    },
+    "Linear Algebra": {
+        "beginner": [
+            {"title": "3Blue1Brown – Essence of Linear Algebra",   "url": "https://www.youtube.com/playlist?list=PLZHQObOWTQDPD3MizzM2xVFitgF8hE_ab"},
+            {"title": "Khan Academy – Linear Algebra",             "url": "https://www.khanacademy.org/math/linear-algebra"},
+        ],
+        "intermediate": [
+            {"title": "Gilbert Strang – MIT 18.06 (free)",         "url": "https://ocw.mit.edu/courses/18-06-linear-algebra-spring-2010/"},
+            {"title": "Immersive Math – interactive textbook",     "url": "https://immersivemath.com/ila/index.html"},
+        ],
+        "advanced": [
+            {"title": "The Matrix Cookbook",                       "url": "https://www.math.uwaterloo.ca/~hwolkowi/matrixcookbook.pdf"},
+        ],
+    },
+    "Python": {
+        "beginner": [
+            {"title": "Python Official Tutorial",                  "url": "https://docs.python.org/3/tutorial/"},
+            {"title": "Automate the Boring Stuff (free)",          "url": "https://automatetheboringstuff.com/"},
+            {"title": "freeCodeCamp – Python for Beginners",       "url": "https://www.freecodecamp.org/learn/scientific-computing-with-python/"},
+        ],
+        "intermediate": [
+            {"title": "Real Python tutorials",                     "url": "https://realpython.com/"},
+            {"title": "Fluent Python",                             "url": "https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/"},
+        ],
+        "advanced": [
+            {"title": "High Performance Python",                   "url": "https://www.oreilly.com/library/view/high-performance-python/9781492055013/"},
+        ],
+    },
+    "JavaScript": {
+        "beginner": [
+            {"title": "JavaScript.info",                           "url": "https://javascript.info/"},
+            {"title": "MDN – JavaScript Guide",                    "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide"},
+        ],
+        "intermediate": [
+            {"title": "You Don't Know JS (free)",                  "url": "https://github.com/getify/You-Dont-Know-JS"},
+            {"title": "javascript30",                              "url": "https://javascript30.com/"},
+        ],
+        "advanced": [
+            {"title": "Patterns.dev",                              "url": "https://www.patterns.dev/"},
+        ],
+    },
+    "TypeScript": {
+        "beginner": [
+            {"title": "TypeScript Handbook",                       "url": "https://www.typescriptlang.org/docs/handbook/intro.html"},
+            {"title": "Total TypeScript – Beginner's Tutorial",    "url": "https://www.totaltypescript.com/tutorials/beginners-typescript"},
+        ],
+        "intermediate": [
+            {"title": "TypeScript Deep Dive (free)",               "url": "https://basarat.gitbook.io/typescript/"},
+        ],
+        "advanced": [
+            {"title": "Total TypeScript – Advanced Patterns",      "url": "https://www.totaltypescript.com/workshops/advanced-typescript-patterns"},
+        ],
+    },
+    "React": {
+        "beginner": [
+            {"title": "React Official Docs",                       "url": "https://react.dev/learn"},
+            {"title": "Scrimba – Learn React for Free",            "url": "https://scrimba.com/learn/learnreact"},
+        ],
+        "intermediate": [
+            {"title": "Epic React by Kent C. Dodds",               "url": "https://epicreact.dev/"},
+        ],
+        "advanced": [
+            {"title": "Patterns.dev – React Patterns",             "url": "https://www.patterns.dev/react"},
+        ],
+    },
+    "SQL": {
+        "beginner": [
+            {"title": "SQLZoo – interactive tutorial",             "url": "https://sqlzoo.net/"},
+        ],
+        "intermediate": [
+            {"title": "Use The Index, Luke",                       "url": "https://use-the-index-luke.com/"},
+        ],
+        "advanced": [
+            {"title": "CMU Database Systems (free lectures)",      "url": "https://15445.courses.cs.cmu.edu/"},
+            {"title": "Designing Data-Intensive Applications",     "url": "https://dataintensive.net/"},
+        ],
+    },
+    "Docker": {
+        "beginner": [
+            {"title": "Docker Official Docs",                      "url": "https://docs.docker.com/get-started/"},
+            {"title": "Play with Docker (browser lab)",            "url": "https://labs.play-with-docker.com/"},
+        ],
+        "intermediate": [
+            {"title": "Docker Compose Docs",                       "url": "https://docs.docker.com/compose/"},
+        ],
+        "advanced": [
+            {"title": "BuildKit advanced features",                "url": "https://docs.docker.com/build/buildkit/"},
+        ],
+    },
+    "Kubernetes": {
+        "beginner":     [{"title": "Kubernetes Basics",                 "url": "https://kubernetes.io/docs/tutorials/kubernetes-basics/"}],
+        "intermediate": [{"title": "Kubernetes in Action",              "url": "https://www.manning.com/books/kubernetes-in-action-second-edition"}],
+        "advanced":     [{"title": "Production Kubernetes",             "url": "https://www.oreilly.com/library/view/production-kubernetes/9781492092292/"}],
+    },
+    "AWS": {
+        "beginner":     [{"title": "AWS Cloud Practitioner Essentials", "url": "https://explore.skillbuilder.aws/learn/course/external/view/elearning/134/aws-cloud-practitioner-essentials"}],
+        "intermediate": [{"title": "AWS CDK Workshop",                  "url": "https://cdkworkshop.com/"}],
+        "advanced":     [{"title": "AWS re:Invent talks",               "url": "https://www.youtube.com/@AWSEventsChannel"}],
+    },
+    "TensorFlow": {
+        "beginner":     [{"title": "TensorFlow – Learn ML",             "url": "https://www.tensorflow.org/learn"}],
+        "intermediate": [{"title": "Hands-On ML with Scikit-Learn & TF","url": "https://www.oreilly.com/library/view/hands-on-machine-learning/9781098125967/"}],
+        "advanced":     [{"title": "TF Extended (TFX)",                 "url": "https://www.tensorflow.org/tfx"}],
+    },
+    "PyTorch": {
+        "beginner":     [{"title": "PyTorch – Learn the Basics",        "url": "https://pytorch.org/tutorials/beginner/basics/intro.html"},
+                         {"title": "fast.ai – Practical Deep Learning", "url": "https://course.fast.ai/"}],
+        "intermediate": [{"title": "Deep Learning with PyTorch (free)", "url": "https://pytorch.org/assets/deep-learning/Deep-Learning-with-PyTorch.pdf"}],
+        "advanced":     [{"title": "Torch.compile deep dive",           "url": "https://pytorch.org/tutorials/intermediate/torch_compile_tutorial.html"}],
+    },
+    "MATLAB": {
+        "beginner":     [{"title": "MATLAB Onramp (free)",              "url": "https://matlabacademy.mathworks.com/details/matlab-onramp/gettingstarted"},
+                         {"title": "MATLAB Documentation",              "url": "https://www.mathworks.com/help/matlab/"}],
+        "intermediate": [{"title": "Signal Processing Toolbox",         "url": "https://www.mathworks.com/products/signal.html"}],
+        "advanced":     [{"title": "Parallel Computing Toolbox",        "url": "https://www.mathworks.com/products/parallel-computing.html"}],
+    },
+    "Julia": {
+        "beginner":     [{"title": "Julia Official Docs",               "url": "https://docs.julialang.org/en/v1/"},
+                         {"title": "MIT Computational Thinking",        "url": "https://computationalthinking.mit.edu/"}],
+        "intermediate": [{"title": "Julia for Data Science",            "url": "https://juliadatascience.io/"}],
+        "advanced":     [{"title": "Performance Tips – Julia manual",   "url": "https://docs.julialang.org/en/v1/manual/performance-tips/"}],
+    },
+    "C++": {
+        "beginner":     [{"title": "learncpp.com",                      "url": "https://www.learncpp.com/"}],
+        "intermediate": [{"title": "Effective Modern C++",              "url": "https://www.oreilly.com/library/view/effective-modern-c/9781491908419/"}],
+        "advanced":     [{"title": "CppCon talks",                      "url": "https://www.youtube.com/@CppCon"}],
+    },
+}
+
+STATIC_FALLBACK: Dict[str, List[str]] = {
+    "frontend developer":   ["JavaScript", "TypeScript", "React", "CSS", "HTML"],
+    "backend developer":    ["Python", "Node", "Java", "SQL", "MongoDB", "Redis"],
+    "software engineer":    ["Python", "Java", "SQL", "Docker", "Kubernetes", "AWS"],
+    "data scientist":       ["Python", "Pandas", "SQL", "TensorFlow", "PyTorch"],
+    "ml engineer":          ["Python", "TensorFlow", "PyTorch", "Docker", "Kubernetes"],
+    "devops engineer":      ["Docker", "Kubernetes", "AWS", "Python", "SQL"],
+    "quantum engineer":     ["Qiskit", "Python", "Linear Algebra", "Quantum Mechanics", "Cirq", "MATLAB"],
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  AI fallback
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ai_generate_skills_and_resources(role: str) -> Optional[Dict]:
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        print("[AI Fallback] ANTHROPIC_API_KEY not set, skipping.")
+        return None
+
+    client = anthropic.Anthropic(api_key=api_key)
+    prompt = f"""You are a senior technical career advisor.
+A user wants to become a "{role}".
+
+1. List the 8-10 most important TECHNICAL skills/tools for a "{role}" in 2024-2025.
+   Be domain-specific — e.g. for Quantum Engineer list Qiskit/Cirq, NOT generic Python/JS.
+
+2. For each skill, provide 3 REAL learning resources (beginner, intermediate, advanced).
+
+Respond ONLY as valid JSON, no markdown fences:
+{{
+  "skills": ["Skill1", ...],
+  "resources": {{
+    "Skill1": {{
+      "beginner":     [{{"title":"...","url":"https://..."}}],
+      "intermediate": [{{"title":"...","url":"https://..."}}],
+      "advanced":     [{{"title":"...","url":"https://..."}}]
+    }}
+  }}
+}}"""
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = msg.content[0].text.strip()
+        raw = re.sub(r"^```[a-z]*\n?", "", raw, flags=re.M)
+        raw = re.sub(r"\n?```$", "", raw, flags=re.M)
+        data = json.loads(raw)
+        print(f"[AI Fallback] Generated {len(data.get('skills',[]))} skills for '{role}'")
+        return data
+    except Exception as exc:
+        print(f"[AI Fallback] Failed: {exc}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Resource lookup
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_tier_resources(skill: str, tier: str, ai_res: Optional[Dict] = None) -> List[Dict]:
+    if skill in TIERED_RESOURCES and tier in TIERED_RESOURCES[skill]:
+        return TIERED_RESOURCES[skill][tier][:3]
+    for key in TIERED_RESOURCES:
+        if skill.lower().startswith(key.lower()) or key.lower().startswith(skill.lower()):
+            if tier in TIERED_RESOURCES[key]:
+                return TIERED_RESOURCES[key][tier][:3]
+    if ai_res and skill in ai_res and tier in ai_res[skill]:
+        return ai_res[skill][tier][:3]
+    return [
+        {"title": f"Learn {skill} ({tier}) – YouTube", "url": f"https://www.youtube.com/results?search_query=learn+{skill.replace(' ','+')}"},
+        {"title": f"{skill} – Udemy",                  "url": f"https://www.udemy.com/courses/search/?q={skill.replace(' ','+')}"},
+        {"title": f"{skill} – GeeksforGeeks",          "url": f"https://www.geeksforgeeks.org/search/?q={skill.replace(' ','+')}"},
+    ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Phase generator — NO `sem` key; phases map to SKILL_LEVELS by index
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_phases(skills: List[str], role: str, ai_resources: Optional[Dict] = None) -> List[Dict]:
+    if not skills:
+        return []
+
+    def R(s, t):
+        return _get_tier_resources(s, t, ai_resources)
+
+    half    = max(1, len(skills) // 2)
+    first_h = skills[:half]
+    second_h = skills[half:] or first_h
+    rc = role.title()
+
+    return [
+        # [0] Beginner
+        {
+            "title": "Foundations",
+            "duration": "4–8 weeks",
+            "description": f"Build the theoretical and practical base for {rc}. Core concepts, environment setup, first programs.",
+            "tasks": first_h,
+            "resources": [{"skill": s, "tier": "beginner", "resources": R(s, "beginner")} for s in first_h],
+        },
+        # [1] Elementary
+        {
+            "title": "Core Tooling",
+            "duration": "4–8 weeks",
+            "description": f"Expand your {rc} toolkit. Apply foundational knowledge to realistic exercises.",
+            "tasks": second_h,
+            "resources": [{"skill": s, "tier": "beginner", "resources": R(s, "beginner")} for s in second_h],
+        },
+        # [2] Intermediate
+        {
+            "title": "Intermediate Skills",
+            "duration": "8–12 weeks",
+            "description": f"Libraries, frameworks, and architectural patterns used by professional {rc}s.",
+            "tasks": skills,
+            "resources": [{"skill": s, "tier": "intermediate", "resources": R(s, "intermediate")} for s in skills],
+        },
+        # [3] Advanced
+        {
+            "title": "Advanced Mastery",
+            "duration": "8–12 weeks",
+            "description": f"Performance, scalability, research papers, and advanced architectures for {rc}.",
+            "tasks": skills,
+            "resources": [{"skill": s, "tier": "advanced", "resources": R(s, "advanced")} for s in skills],
+        },
+        # [4] Expert
+        {
+            "title": "Capstone Projects",
+            "duration": "4–8 weeks",
+            "description": f"2–3 portfolio-quality {rc} projects with tests, deployment and docs.",
+            "tasks": [
+                f"Build a portfolio project combining {', '.join(skills[:3])}",
+                "Write unit + integration tests",
+                "Deploy your project (cloud / HuggingFace Spaces)",
+                "Write a technical README with architecture diagram",
+                "Contribute to a relevant open-source repository",
+            ],
+            "resources": [
+                {"skill": "Project Planning", "tier": "advanced", "resources": [
+                    {"title": "GitHub Explore",   "url": "https://github.com/explore"},
+                    {"title": "roadmap.sh",       "url": "https://roadmap.sh/"},
+                ]},
+                {"skill": "Testing", "tier": "intermediate", "resources": [
+                    {"title": "pytest docs",      "url": "https://docs.pytest.org/"},
+                    {"title": "Testing Library",  "url": "https://testing-library.com/"},
+                ]},
+                {"skill": "Deployment", "tier": "intermediate", "resources": [
+                    {"title": "Vercel Docs",      "url": "https://vercel.com/docs"},
+                    {"title": "HuggingFace Spaces","url": "https://huggingface.co/spaces"},
+                ]},
+                {"skill": "Documentation", "tier": "beginner", "resources": [
+                    {"title": "makeareadme.com",  "url": "https://www.makeareadme.com/"},
+                ]},
+                {"skill": "Open Source", "tier": "advanced", "resources": [
+                    {"title": "First Contributions","url": "https://firstcontributions.github.io/"},
+                    {"title": "Good First Issues", "url": "https://goodfirstissues.com/"},
+                ]},
+            ],
+        },
+        # [5] Master
+        {
+            "title": "Interview Preparation",
+            "duration": "4–6 weeks",
+            "description": f"Land the {rc} job. Algorithms, system/domain design, and behavioural interviews.",
+            "tasks": [
+                f"Domain-specific problem solving for {rc} roles",
+                "Data structures & algorithms (arrays, trees, graphs, DP)",
+                "LeetCode – Blind 75 problems",
+                "System / domain design interviews",
+                "Behavioural questions (STAR method)",
+                "Mock interviews (Pramp / Interviewing.io)",
+            ],
+            "resources": [
+                {"skill": "DSA", "tier": "intermediate", "resources": [
+                    {"title": "NeetCode 150",      "url": "https://neetcode.io/practice"},
+                    {"title": "LeetCode",          "url": "https://leetcode.com/"},
+                ]},
+                {"skill": "Domain Problems", "tier": "advanced", "resources": [
+                    {"title": f"{rc} questions – Glassdoor",
+                     "url": f"https://www.glassdoor.com/Interview/{role.replace(' ','-')}-interview-questions-SRCH_KO0,{len(role)}.htm"},
+                    {"title": "Striver's A2Z DSA", "url": "https://takeuforward.org/strivers-a2z-dsa-course/"},
+                ]},
+                {"skill": "System Design", "tier": "advanced", "resources": [
+                    {"title": "System Design Primer","url": "https://github.com/donnemartin/system-design-primer"},
+                    {"title": "Grokking System Design","url": "https://www.designgurus.io/course/grokking-the-system-design-interview"},
+                ]},
+                {"skill": "Mock Interviews", "tier": "advanced", "resources": [
+                    {"title": "Pramp",             "url": "https://www.pramp.com/"},
+                    {"title": "Interviewing.io",   "url": "https://interviewing.io/"},
+                ]},
+            ],
+        },
+    ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Main scraper class
+# ─────────────────────────────────────────────────────────────────────────────
 
 class SkillResourcesScraper:
-    """
-    Scrapes learning resources for specific skills from various platforms.
-    Focuses on high-quality, free resources like tutorials, courses, practice platforms.
-    """
-    
     def __init__(self):
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        # Curated list of resources by skill
-        self.resource_database = {
-            'Python': [
-                {'title': 'Python Official Tutorial', 'url': 'https://docs.python.org/3/tutorial/'},
-                {'title': 'Real Python', 'url': 'https://realpython.com/'},
-                {'title': 'Codecademy Python', 'url': 'https://www.codecademy.com/learn/learn-python-3'},
-                {'title': 'LeetCode Python Problems', 'url': 'https://leetcode.com/explore/?difficulty=EASY'},
-                {'title': 'HackerRank Python', 'url': 'https://www.hackerrank.com/domains/python'},
-            ],
-            'JavaScript': [
-                {'title': 'MDN JavaScript Guide', 'url': 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide'},
-                {'title': 'JavaScript.info', 'url': 'https://javascript.info/'},
-                {'title': 'Codecademy JavaScript', 'url': 'https://www.codecademy.com/learn/introduction-to-javascript'},
-                {'title': 'FreeCodeCamp JavaScript', 'url': 'https://www.freecodecamp.org/learn/javascript-algorithms-and-data-structures'},
-                {'title': 'LeetCode JavaScript', 'url': 'https://leetcode.com/explore/?difficulty=EASY'},
-            ],
-            'React': [
-                {'title': 'React Official Docs', 'url': 'https://react.dev/'},
-                {'title': 'React Tutorial - TutorialsPoint', 'url': 'https://www.tutorialspoint.com/reactjs/'},
-                {'title': 'Scrimba React Course', 'url': 'https://scrimba.com/learn/learnreact'},
-                {'title': 'FreeCodeCamp React', 'url': 'https://www.freecodecamp.org/learn/front-end-development-libraries/react/'},
-                {'title': 'CodePen React Examples', 'url': 'https://codepen.io/pens/projects/?search=react'},
-            ],
-            'Node.js': [
-                {'title': 'Node.js Official Docs', 'url': 'https://nodejs.org/en/docs/'},
-                {'title': 'Node.js Tutorial', 'url': 'https://www.w3schools.com/nodejs/'},
-                {'title': 'Express.js Guide', 'url': 'https://expressjs.com/'},
-                {'title': 'Udemy Node.js Courses', 'url': 'https://www.udemy.com/courses/search/?q=node.js'},
-                {'title': 'FreeCodeCamp Node.js', 'url': 'https://www.freecodecamp.org/learn/back-end-development-and-apis/'},
-            ],
-            'SQL': [
-                {'title': 'SQL Tutorial - W3Schools', 'url': 'https://www.w3schools.com/sql/'},
-                {'title': 'SQLZoo', 'url': 'https://sqlzoo.net/'},
-                {'title': 'Mode SQL Tutorial', 'url': 'https://mode.com/sql-tutorial/'},
-                {'title': 'HackerRank SQL', 'url': 'https://www.hackerrank.com/domains/sql'},
-                {'title': 'LeetCode Database Problems', 'url': 'https://leetcode.com/explore/learn/card/sql-language/'},
-            ],
-            'Data Structures': [
-                {'title': 'GeeksforGeeks DSA', 'url': 'https://www.geeksforgeeks.org/data-structures/'},
-                {'title': 'LeetCode Explore', 'url': 'https://leetcode.com/explore/'},
-                {'title': 'Visualgo - Algorithms Visualizer', 'url': 'https://visualgo.net/'},
-                {'title': 'InterviewBit Data Structures', 'url': 'https://www.interviewbit.com/courses/programming/'},
-                {'title': 'Coursera Data Structures', 'url': 'https://www.coursera.org/learn/data-structures'},
-            ],
-            'Machine Learning': [
-                {'title': 'Scikit-learn Documentation', 'url': 'https://scikit-learn.org/stable/'},
-                {'title': 'Fast.ai ML Course', 'url': 'https://www.fast.ai/'},
-                {'title': 'Andrew Ng ML Course', 'url': 'https://www.coursera.org/learn/machine-learning'},
-                {'title': 'Kaggle Learn', 'url': 'https://www.kaggle.com/learn'},
-                {'title': 'Made With ML', 'url': 'https://madewithml.com/'},
-            ],
-            'Deep Learning': [
-                {'title': 'TensorFlow Official Tutorial', 'url': 'https://www.tensorflow.org/tutorials'},
-                {'title': 'PyTorch Tutorials', 'url': 'https://pytorch.org/tutorials/'},
-                {'title': 'Fast.ai Deep Learning', 'url': 'https://course.fast.ai/'},
-                {'title': 'Deeplearning.ai Specialization', 'url': 'https://www.deeplearning.ai/'},
-                {'title': 'Kaggle Deep Learning', 'url': 'https://www.kaggle.com/learn/intro-to-deep-learning'},
-            ],
-            'System Design': [
-                {'title': 'System Design Primer', 'url': 'https://github.com/donnemartin/system-design-primer'},
-                {'title': 'Grokking System Design', 'url': 'https://www.educative.io/courses/grokking-the-system-design-interview'},
-                {'title': 'High Scalability Blog', 'url': 'http://highscalability.com/'},
-                {'title': 'YouTube - System Design', 'url': 'https://www.youtube.com/results?search_query=system+design+interview'},
-                {'title': 'LeetCode System Design', 'url': 'https://leetcode.com/discuss/interview-question/system-design'},
-            ],
-            'AWS': [
-                {'title': 'AWS Official Documentation', 'url': 'https://docs.aws.amazon.com/'},
-                {'title': 'AWS Tutorials Dojo', 'url': 'https://www.tutorialsdojo.com/'},
-                {'title': 'A Cloud Guru AWS', 'url': 'https://www.acg.com/'},
-                {'title': 'Coursera AWS', 'url': 'https://www.coursera.org/search?query=aws'},
-                {'title': 'CloudGuru Hands-on Labs', 'url': 'https://learn.acloud.guru/'},
-            ],
-            'Docker': [
-                {'title': 'Docker Official Docs', 'url': 'https://docs.docker.com/'},
-                {'title': 'Docker Tutorial - W3Schools', 'url': 'https://www.w3schools.com/docker/'},
-                {'title': 'Play with Docker', 'url': 'https://labs.play-with-docker.com/'},
-                {'title': 'Udemy Docker', 'url': 'https://www.udemy.com/courses/search/?q=docker'},
-                {'title': 'FreeCodeCamp Docker', 'url': 'https://www.freecodecamp.org/news/docker-tutorial-for-beginners/'},
-            ],
-            'Git': [
-                {'title': 'Git Official Tutorial', 'url': 'https://git-scm.com/doc'},
-                {'title': 'GitHub Learning Lab', 'url': 'https://lab.github.com/'},
-                {'title': 'Atlassian Git Tutorial', 'url': 'https://www.atlassian.com/git/tutorials'},
-                {'title': 'Interactive Git Tutorial', 'url': 'https://learngitbranching.js.org/'},
-                {'title': 'GitHub Skills', 'url': 'https://skills.github.com/'},
-            ],
-            'OOP': [
-                {'title': 'GeeksforGeeks OOP', 'url': 'https://www.geeksforgeeks.org/object-oriented-programming-oops-concept-in-java/'},
-                {'title': 'Refactoring Guru Design Patterns', 'url': 'https://refactoring.guru/design-patterns'},
-                {'title': 'Design Patterns Book', 'url': 'https://www.patterns.dev/posts/'},
-                {'title': 'TutorialsPoint OOP', 'url': 'https://www.tutorialspoint.com/object_oriented_programming/'},
-                {'title': 'Polymorphism & Inheritance', 'url': 'https://www.w3schools.com/java/java_polymorphism.asp'},
-            ],
-            'Linux': [
-                {'title': 'Linux Command Line Basics', 'url': 'https://ubuntu.com/tutorials/command-line-for-beginners'},
-                {'title': 'Linux Academy (A Cloud Guru)', 'url': 'https://learn.acloud.guru/'},
-                {'title': 'OverTheWire Linux', 'url': 'https://overthewire.org/wargames/bandit/'},
-                {'title': 'Linux.com Tutorials', 'url': 'https://www.linux.com/training-tutorials/'},
-                {'title': 'HowtoForge Linux Tutorials', 'url': 'https://www.howtoforge.com/'},
-            ],
-            'Web Development': [
-                {'title': 'MDN Web Docs', 'url': 'https://developer.mozilla.org/'},
-                {'title': 'FreeCodeCamp Web Dev', 'url': 'https://www.freecodecamp.org/'},
-                {'title': 'The Odin Project', 'url': 'https://www.theodinproject.com/'},
-                {'title': 'W3Schools Web', 'url': 'https://www.w3schools.com/'},
-                {'title': 'Codecademy Web', 'url': 'https://www.codecademy.com/learn/paths/web-development'},
-            ],
-            'HTML CSS': [
-                {'title': 'MDN HTML/CSS', 'url': 'https://developer.mozilla.org/en-US/docs/Learn/HTML'},
-                {'title': 'W3Schools HTML/CSS', 'url': 'https://www.w3schools.com/whatis/'},
-                {'title': 'CSS Tricks', 'url': 'https://css-tricks.com/'},
-                {'title': 'FreeCodeCamp Responsive Design', 'url': 'https://www.freecodecamp.org/news/css-grid-flexbox-responsive-design/'},
-                {'title': 'Flexbox Froggy Game', 'url': 'https://flexboxfroggy.com/'},
-            ],
-            'Competitive Programming': [
-                {'title': 'LeetCode', 'url': 'https://leetcode.com/'},
-                {'title': 'HackerRank', 'url': 'https://www.hackerrank.com/'},
-                {'title': 'CodeChef', 'url': 'https://www.codechef.com/'},
-                {'title': 'Codeforces', 'url': 'https://codeforces.com/'},
-                {'title': 'AtCoder', 'url': 'https://atcoder.jp/'},
-            ],
-            'REST API': [
-                {'title': 'REST API Tutorial', 'url': 'https://restfulapi.net/'},
-                {'title': 'MDN HTTP/REST', 'url': 'https://developer.mozilla.org/en-US/docs/Web/HTTP'},
-                {'title': 'Postman Learning Center', 'url': 'https://learning.postman.com/'},
-                {'title': 'FreeCodeCamp REST API', 'url': 'https://www.freecodecamp.org/news/how-to-write-a-web-api-using-flask/'},
-                {'title': 'OpenAPI/Swagger', 'url': 'https://swagger.io/specification/'},
-            ],
-        }
-    
-    def get_resources_for_skill(self, skill: str, limit: int = 5) -> List[Dict]:
-        """
-        Returns a list of resources for a given skill.
-        Falls back to generic learning resources if skill not found.
-        
-        Args:
-            skill: Name of the skill
-            limit: Maximum number of resources to return
-            
-        Returns:
-            List of resource dictionaries with 'title' and 'url'
-        """
-        # Try exact match
-        if skill in self.resource_database:
-            resources = self.resource_database[skill][:limit]
-            return resources
-        
-        # Try partial match
-        skill_lower = skill.lower()
-        for key, resources in self.resource_database.items():
-            if skill_lower in key.lower() or key.lower() in skill_lower:
-                return resources[:limit]
-        
-        # Default to generic study resources
-        generic_resources = [
-            {'title': f'GeeksforGeeks - {skill}', 'url': f'https://www.geeksforgeeks.org/?s={skill.replace(" ", "+")}'},
-            {'title': f'YouTube - Learn {skill}', 'url': f'https://www.youtube.com/results?search_query=learn+{skill.replace(" ", "+")}'},
-            {'title': f'Udemy - {skill} Courses', 'url': f'https://www.udemy.com/courses/search/?q={skill.replace(" ", "+")}'},
-            {'title': f'Coursera - {skill}', 'url': f'https://www.coursera.org/search?query={skill.replace(" ", "+")}'},
-            {'title': f'Stack Overflow - {skill} Tag', 'url': f'https://stackoverflow.com/questions/tagged/{skill.lower().replace(" ", "-")}'},
-        ]
-        
-        return generic_resources[:limit]
-    
-    def get_role_resources(self, role: str) -> Dict[str, List[List[Dict]]]:
-        """
-        Returns resources grouped by role and skill.
-        Maps role to required skills and then to resources for each skill.
-        
-        Args:
-            role: Career role (e.g., 'Software Engineer', 'Data Scientist')
-            
-        Returns:
-            Dictionary with role's learning materials
-        """
-        role_skills = {
-            'Software Engineer': [
-                'Python', 'JavaScript', 'Data Structures', 'OOP', 'System Design',
-                'React', 'Node.js', 'SQL', 'Git', 'Linux', 'Docker', 'REST API',
-                'Competitive Programming'
-            ],
-            'Data Scientist': [
-                'Python', 'SQL', 'Machine Learning', 'Deep Learning',
-                'Data Structures', 'Statistics', 'TensorFlow', 'Pandas',
-                'Scikit-learn', 'Jupyter', 'AWS'
-            ],
-            'DevOps Engineer': [
-                'Linux', 'Docker', 'Git', 'AWS', 'System Design',
-                'Kubernetes', 'Python', 'Networking', 'CI/CD', 'Terraform'
-            ],
-            'ML Engineer': [
-                'Python', 'Machine Learning', 'Deep Learning', 'Data Structures',
-                'TensorFlow', 'PyTorch', 'SQL', 'AWS', 'System Design'
-            ],
-            'Frontend Developer': [
-                'HTML CSS', 'JavaScript', 'React', 'Web Development',
-                'Git', 'REST API', 'CSS Tricks', 'TypeScript'
-            ],
-            'Backend Developer': [
-                'Python', 'Node.js', 'SQL', 'REST API', 'System Design',
-                'Docker', 'Linux', 'Git', 'OOP', 'Database Design'
-            ],
-            'Product Manager': [
-                'System Design', 'Data Structures', 'Web Development',
-                'SQL', 'Analytics', 'Communication'
-            ],
-        }
-        
-        skills = role_skills.get(role, role_skills['Software Engineer'])
-        resources_by_skill = {}
-        
-        for skill in skills:
-            resources_by_skill[skill] = self.get_resources_for_skill(skill, limit=3)
-        
-        return resources_by_skill
+        self.job_scraper = JobScraper()
 
+    def get_dynamic_role_resources(self, target_role: str, location: str = "India", num_jobs: int = 5) -> Dict:
+        print(f"[Scraper] Starting pipeline for '{target_role}'…")
+        extracted_skills = self.job_scraper.scrape_job_skills(target_role, location, num_jobs)
+        ai_resources: Optional[Dict] = None
+
+        if len(extracted_skills) < 3:
+            print(f"[Scraper] Only {len(extracted_skills)} skills found — calling AI…")
+            ai_data = _ai_generate_skills_and_resources(target_role)
+            if ai_data:
+                extracted_skills = ai_data.get("skills", [])
+                ai_resources     = ai_data.get("resources", {})
+                for skill, tiers in ai_resources.items():
+                    if skill not in TIERED_RESOURCES:
+                        TIERED_RESOURCES[skill] = tiers
+            else:
+                key = target_role.lower().strip()
+                extracted_skills = (
+                    STATIC_FALLBACK.get(key)
+                    or STATIC_FALLBACK.get(key.replace(" ", ""))
+                    or ["Python", "SQL", "Docker"]
+                )
+
+        phases = build_phases(extracted_skills, target_role, ai_resources)
+        return {
+            "role":             target_role,
+            "location":         location,
+            "extracted_skills": extracted_skills,
+            "phases":           phases,
+            "source":           "live-scrape+ai" if ai_resources else "live-scrape",
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CLI
+# ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    """Test the scraper"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--role",     default="Quantum Engineer")
+    parser.add_argument("--location", default="India")
+    parser.add_argument("--num-jobs", type=int, default=5)
+    parser.add_argument("--json",     action="store_true")
+    args    = parser.parse_args()
     scraper = SkillResourcesScraper()
-    
-    # Test getting resources for a skill
-    python_resources = scraper.get_resources_for_skill('Python')
-    print("Python Resources:")
-    for res in python_resources:
-        print(f"  - {res['title']}: {res['url']}")
-    
-    # Test getting role resources
-    se_resources = scraper.get_role_resources('Software Engineer')
-    print("\nSoftware Engineer Skills & Resources:")
-    for skill, resources in list(se_resources.items())[:3]:
-        print(f"\n{skill}:")
-        for res in resources:
-            print(f"  - {res['title']}")
+    result  = scraper.get_dynamic_role_resources(args.role, args.location, args.num_jobs)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        LEVELS = ["Beginner","Elementary","Intermediate","Advanced","Expert","Master"]
+        print(f"\nRole:   {result['role']}")
+        print(f"Source: {result['source']}")
+        print(f"Skills: {', '.join(result['extracted_skills'])}")
+        for i, p in enumerate(result["phases"]):
+            print(f"  [{LEVELS[min(i,5)]}] {p['title']} ({p.get('duration','?')}): {len(p['tasks'])} tasks")
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

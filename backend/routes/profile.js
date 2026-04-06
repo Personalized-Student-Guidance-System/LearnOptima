@@ -272,6 +272,7 @@ router.put('/', auth, async (req, res) => {
       semester,
       college,
       targetRole,
+      customRole,
       bio,
       cgpa,
       goals,
@@ -296,6 +297,7 @@ router.put('/', auth, async (req, res) => {
     if (semester !== undefined) profile.semester = semester;
     if (college !== undefined) profile.college = college;
     if (targetRole !== undefined) profile.targetRole = targetRole;
+    if (customRole !== undefined) profile.customRole = customRole;
     if (bio !== undefined) profile.bio = bio;
     if (cgpa !== undefined) profile.cgpa = cgpa == null || cgpa === '' ? undefined : Number(cgpa);
     if (Array.isArray(goals)) profile.goals = goals;
