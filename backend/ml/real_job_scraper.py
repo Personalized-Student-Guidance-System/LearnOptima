@@ -124,7 +124,7 @@ class RealJobScraper:
             try:
                 self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, CARD_SEL)))
             except TimeoutException:
-                print("[Naukri] Timeout waiting for cards, trying fallback anchor scan…")
+                print("[Naukri] Timeout waiting for cards, trying fallback anchor scan...")
 
             cards = self.driver.find_elements(By.CSS_SELECTOR, CARD_SEL)
             print(f"[Naukri] Found {len(cards)} cards")
@@ -205,9 +205,9 @@ class RealJobScraper:
                             "source":   "naukri",
                             "deadline": _estimate_deadline(random.randint(7, 30)),
                         })
-                        print(f"  [Naukri] ✓ {title_text[:50]} → {apply_url[:80]}")
+                        print(f"  [Naukri] OK {title_text[:50]} -> {apply_url[:80]}")
                     else:
-                        print(f"  [Naukri] ✗ No URL found for card {cards.index(card)}")
+                        print(f"  [Naukri] No URL found for card {cards.index(card)}")
 
                 except Exception as e:
                     print(f"[Naukri] card parse error: {e}")
@@ -351,9 +351,9 @@ class RealJobScraper:
                             "source":   "linkedin",
                             "deadline": _estimate_deadline(random.randint(5, 21)),
                         })
-                        print(f"  [LinkedIn] ✓ {title_text[:50]} → {apply_url[:80]}")
+                        print(f"  [LinkedIn] OK {title_text[:50]} -> {apply_url[:80]}")
                     else:
-                        print(f"  [LinkedIn] ✗ No valid URL for card {cards.index(card)}")
+                        print(f"  [LinkedIn] No valid URL for card {cards.index(card)}")
 
                 except Exception as e:
                     print(f"[LinkedIn] card parse error: {e}")
@@ -496,7 +496,7 @@ class RealJobScraper:
                             "source":   "google",
                             "deadline": _estimate_deadline(random.randint(7, 25)),
                         })
-                        print(f"  [Google] ✓ {title_text[:50]} → {apply_url[:80]}")
+                        print(f"  [Google] OK {title_text[:50]} -> {apply_url[:80]}")
 
                 except Exception as e:
                     print(f"[Google Jobs] card error: {e}")
@@ -529,7 +529,7 @@ class RealJobScraper:
         num_jobs: int = 5,
     ) -> List[str]:
         """Return ranked skill strings for job_title."""
-        print(f"[RealScraper] Scraping skills for '{job_title}'…")
+        print(f"[RealScraper] Scraping skills for '{job_title}'...")
 
         naukri_jobs   = self.scrape_naukri_jobs(job_title, location, num_jobs)
         linkedin_jobs = self.scrape_linkedin_jobs(job_title, location, num_jobs)
@@ -559,7 +559,7 @@ class RealJobScraper:
 
         top = sorted(freq.items(), key=lambda x: x[1], reverse=True)[:15]
         result = [s.capitalize() for s, _ in top if len(s) > 2]
-        print(f"[RealScraper] → {len(result)} skills found")
+        print(f"[RealScraper] -> {len(result)} skills found")
         return result
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -588,7 +588,7 @@ class RealJobScraper:
                 seen_urls.add(url)
                 merged.append(job)
 
-        print(f"[RealScraper] get_live_jobs → {len(merged)} unique jobs for '{job_title}'")
+        print(f"[RealScraper] get_live_jobs -> {len(merged)} unique jobs for '{job_title}'")
         return merged
 
     def __del__(self):

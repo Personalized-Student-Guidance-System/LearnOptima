@@ -144,7 +144,39 @@ STREAK TRACKING:
 
 ---
 
-## 📈 Key Metrics Available
+## � Career Live Jobs Schema (April 2026)
+
+`GET /api/career/live-jobs?role=<role>&location=<location>&limit=<n>` returns:
+
+```json
+{
+  "role": "Software Engineer",
+  "location": "India",
+  "jobs": [
+    {
+      "title": "Software Engineer",
+      "company": "Microsoft",
+      "location": "Bengaluru, Karnataka, India",
+      "applyUrl": "https://...", 
+      "source": "linkedin",
+      "deadline": "2026-04-27T17:57:11Z"
+    }
+  ],
+  "source": "...",
+  "scrapedAt": "2026-04-09T...Z"
+}
+```
+
+Job objects are normalized to always include these fields:
+`title, company, location, applyUrl (direct job page), source, deadline`.
+
+Notes:
+- `deadline` may be `null` if unknown.
+- Jobs without a valid `applyUrl` are filtered out.
+
+---
+
+## �📈 Key Metrics Available
 
 ### Real-Time Dashboard Stats
 1. **Today** - Minutes studied, sessions count
@@ -365,4 +397,5 @@ See these files for detailed info:
 **Date**: March 29, 2026  
 **Changes**: 7 files created, 5 files modified  
 **Total Lines Added**: 1000+
+
 

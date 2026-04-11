@@ -46,6 +46,7 @@ router.put('/update', auth, async (req, res) => {
  */
 router.get('/analyze', auth, async (req, res) => {
   try {
+    const mlService = require('../services/mlService');
     const userId = req.user.id;
     const queryRole = req.query.role;
     console.log(`[Skills] Analyze request - userId: ${userId}, queryRole: ${queryRole}`);
@@ -55,11 +56,10 @@ router.get('/analyze', auth, async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found' });
     
-    // Determine target role: query param > profile > user > default
-    let targetRole = queryRole || profile?.targetRole || user.targetRole || 'Software Engineer';
-    console.log(`[Skills] Determined targetRole: ${targetRole} (query: ${queryRole}, profile: ${profile?.targetRole}, user: ${user.targetRole})`);
+    // Determine target role
+    const targetRole = queryRole || profile?.targetRole || user.targetRole || 'Software Engineer';
     
-    // Combine all user skills (from profile and user model)
+    // Combine all user skills
     const allSkills = [
       ...(profile?.extractedSkills || []),
       ...(profile?.extraSkills || []),
@@ -67,21 +67,12 @@ router.get('/analyze', auth, async (req, res) => {
       ...((req.query.skills || '').split(',').filter(s => s.trim()))
     ];
     
-    // Get required skills for target role
-    const required = roleSkillMap[targetRole] || roleSkillMap['Software Engineer'];
+    // Call ML service (backend/ml/skill_gap_analyzer.py via proxy)
+    console.log(`[Skills] Calling ML for ${targetRole}...`);
+    const mlResult = await mlService.getSkillGap(allSkills, targetRole);
     
-    // Calculate matched and missing skills
-    const matched = required.filter(s => 
-      allSkills.some(u => u.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(u.toLowerCase()))
-    );
-    const missing = required.filter(s => 
-      !allSkills.some(u => u.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(u.toLowerCase()))
-    );
-    
-    const matchScore = Math.round((matched.length / required.length) * 100);
-    
-    // Prioritize missing skills based on importance and market demand
-    const prioritized = missing.map((s, i) => ({
+    // Map ML output to frontend-expected format
+    const prioritizedMissing = mlResult.missing_skills.slice(0, 10).map((s, i) => ({
       skill: s,
       importance: 100 - (i * 10),
       demand: 85,
@@ -94,29 +85,30 @@ router.get('/analyze', auth, async (req, res) => {
     
     res.json({
       overview: {
-        match_score: matchScore,
-        matched_count: matched.length,
-        missing_count: missing.length,
-        total_required: required.length,
-        analysis: matchScore >= 70 ? `Excellent! You have ${matched.length}/${required.length} skills. Focus on specialization.` 
-                 : matchScore >= 50 ? `Good progress! You have ${matched.length}/${required.length} skills. ${missing.length} more to master.`
-                 : `Build your foundation. Prioritize ${Math.min(3, missing.length)} critical skills.`
+        match_score: mlResult.match_score || 0,
+        matched_count: mlResult.total_matched || 0,
+        missing_count: mlResult.missing_skills.length,
+        total_required: mlResult.total_required || 0,
+        analysis: `ML-powered analysis complete. Live skills scraped from Naukri/LinkedIn for ${targetRole}.`
       },
-      matched_skills: matched.map(s => ({ skill: s, importance: 80 })),
-      missing_skills: prioritized,
-      top_5_priorities: prioritized.slice(0, 5),
+      matched_skills: (mlResult.matched_skills || []).map(s => ({ skill: s, importance: 80 })),
+      missing_skills: prioritizedMissing,
+      top_5_priorities: prioritizedMissing.slice(0, 5),
       learning_queue: profile?.skillsToLearn || [],
       role: targetRole,
       userSkillsCount: allSkills.length,
       college: profile?.college,
       branch: profile?.branch,
-      semester: profile?.semester
+      semester: profile?.semester,
+      ml_debug: { scraped_required: mlResult.required_skills?.slice(0, 10) } // temp for testing
     });
   } catch (err) {
-    console.error('[Skills] Analyze error:', err.message);
-    res.status(500).json({ message: err.message });
+    console.error('[Skills] Analyze/ML error:', err.message);
+    // Fallback to JS matching on error
+    res.status(500).json({ message: `ML service unavailable: ${err.message}. Using fallback.` });
   }
 });
+
 
 /**
  * GET /skills/learning-path

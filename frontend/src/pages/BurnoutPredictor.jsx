@@ -28,11 +28,18 @@ export default function BurnoutPredictor() {
   const [result, setResult] = useState(null);
   const [predicting, setPredicting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState(''); // '', 'saving', 'saved', 'error-local'
+
+  // Agentic coach state
+  const [coach, setCoach] = useState({ threadId: null, stage: null, messages: [], plan: null, provider: null });
+  const [coachLoading, setCoachLoading] = useState(false);
+  const [coachSending, setCoachSending] = useState(false);
+  const [coachInput, setCoachInput] = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      axios.get('/burnout', {
+      axios.get('/api/burnout', {
         headers: { Authorization: `Bearer ${token}` }
       }).then(res => {
         setVals(res.data);
@@ -45,10 +52,60 @@ export default function BurnoutPredictor() {
     }
   }, []);
 
+  // Start/resume coach thread
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    setCoachLoading(true);
+    axios.post('/api/burnout/coach/start', {}, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then((res) => {
+        setCoach({
+          threadId: res.data.threadId,
+          stage: res.data.stage,
+          messages: res.data.messages || [],
+          plan: res.data.plan || null,
+          provider: res.data.provider || null,
+        });
+      })
+      .catch((e) => {
+        console.error('Coach start failed:', e.response?.data || e.message);
+      })
+      .finally(() => setCoachLoading(false));
+  }, []);
+
+  const sendCoachMessage = async () => {
+    const token = localStorage.getItem('token');
+    const msg = coachInput.trim();
+    if (!token || !msg) return;
+
+    setCoachSending(true);
+    try {
+      const res = await axios.post('/api/burnout/coach/message', { message: msg }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCoachInput('');
+      setCoach((prev) => ({
+        ...prev,
+        threadId: res.data.threadId,
+        stage: res.data.stage,
+        messages: res.data.messages || prev.messages,
+        plan: res.data.plan || null,
+        provider: res.data.provider || prev.provider || 'gemini',
+      }));
+    } catch (e) {
+      console.error('Coach message failed:', e.response?.data || e.message);
+    } finally {
+      setCoachSending(false);
+    }
+  };
+
   const predict = async () => {
     setPredicting(true);
     try {
-      const res = await axios.post('/burnout/predict', vals, {
+      const res = await axios.post('/api/burnout/predict', vals, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setResult(res.data);
@@ -68,6 +125,25 @@ export default function BurnoutPredictor() {
       setResult({ score, level, suggestions: suggestions[level] || [] });
     } finally {
       setPredicting(false);
+    }
+  };
+
+  const saveMetrics = async () => {
+    setSaveStatus('saving');
+    try {
+      await axios.post('/api/burnout/save-metrics', vals, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(''), 3000);
+    } catch (e) {
+      console.error('Save metrics FAILED:', {
+        status: e.response?.status,
+        data: e.response?.data,
+        message: e.message
+      });
+      setSaveStatus('error-local');
+      setTimeout(() => setSaveStatus(''), 4000);
     }
   };
 
@@ -136,26 +212,21 @@ export default function BurnoutPredictor() {
                 </div>
               );
             })}
-            {(() => {
-              const saveMetrics = async () => {
-                try {
-                  await axios.post('/burnout/save-metrics', vals, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                  });
-                  alert('Metrics saved! They will persist on refresh.');
-                } catch (e) {
-                  alert('Save failed, check console.');
-                }
-              };
-              return (
-                <>
+            <>
                   <button 
                     className="btn btn-secondary" 
                     onClick={saveMetrics}
+                    disabled={saveStatus === 'saving'}
                     style={{ width: '100%', marginBottom: 12 }}
                   >
-                    Save My Metrics
+                    {saveStatus === 'saving' ? 'Saving...' : 'Save My Metrics'}
                   </button>
+                  {saveStatus && (
+                    <div style={{ fontSize: 12, padding: '8px 12px', borderRadius: 6, textAlign: 'center', marginBottom: 12, backgroundColor: saveStatus === 'saved' ? '#dcfce7' : '#fef2f2', color: saveStatus === 'saved' ? '#166534' : '#dc2626', border: `1px solid ${saveStatus === 'saved' ? '#bbf7d0' : '#fecaca'}` }}>
+                      {saveStatus === 'saved' ? '✅ Metrics saved to profile!' : 
+                       saveStatus === 'error-local' ? '⚠️ Save failed (check backend/auth), local OK' : ''}
+                    </div>
+                  )}
                   <button 
                     className="btn btn-primary" 
                     onClick={predict} 
@@ -171,13 +242,110 @@ export default function BurnoutPredictor() {
                     )}
                   </button>
                 </>
-              );
-            })()}
           </div>
         </div>
 
-        {/* Results */}
+        {/* Results + Coach */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+          {/* Agentic coach */}
+          <div className="card">
+            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${G.border}`, fontSize: 13, fontWeight: 700 }}>
+              AI Burnout Coach (Gemini)
+            </div>
+
+            <div style={{ padding: '8px 16px', borderBottom: `1px solid ${G.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, background: G.bg2 }}>
+              <div style={{ fontSize: 11, color: G.text2 }}>
+                {coach.provider === 'gemini' ? 'Connected to Gemini agent' : 'Checking Gemini connection…'}
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: coachSending ? G.blue : (coach.provider === 'gemini' ? G.green : G.text2) }}>
+                {coachSending ? 'Gemini is thinking…' : (coach.provider === 'gemini' ? 'LIVE AI' : 'INIT')}
+              </span>
+            </div>
+
+            {coachLoading ? (
+              <div style={{ padding: 16, fontSize: 12, color: G.text2, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Spinner size={14} /> Loading coach and connecting to Gemini…
+              </div>
+            ) : (
+              <>
+                <div style={{ padding: 16, maxHeight: 260, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {(coach.messages || []).length === 0 ? (
+                    <div style={{ fontSize: 12, color: G.text2 }}>
+                      Start by sending a message about how you feel today.
+                    </div>
+                  ) : (
+                    coach.messages.map((m, idx) => (
+                      <div key={idx} style={{
+                        alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                        maxWidth: '90%',
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        background: m.role === 'user' ? (G.blue + '15') : G.bg2,
+                        border: `1px solid ${G.border}`,
+                        fontSize: 12,
+                        color: G.text,
+                        whiteSpace: 'pre-wrap'
+                      }}>
+                        {m.content}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div style={{ padding: 12, borderTop: `1px solid ${G.border}`, display: 'flex', gap: 8 }}>
+                  <input
+                    value={coachInput}
+                    onChange={(e) => setCoachInput(e.target.value)}
+                    placeholder="Type your answer…"
+                    style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: `1px solid ${G.border}`, fontSize: 12 }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') sendCoachMessage(); }}
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={sendCoachMessage}
+                    disabled={coachSending}
+                  >
+                    {coachSending ? 'Sending…' : 'Send'}
+                  </button>
+                </div>
+
+                {coachSending && (
+                  <div style={{ padding: '0 12px 12px 12px', fontSize: 12, color: G.blue, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Spinner size={14} /> Gemini is generating your next response and plan…
+                  </div>
+                )}
+
+                {coach.plan && (
+                  <div style={{ padding: 16, borderTop: `1px solid ${G.border}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Your 7‑day plan</div>
+                    <div style={{ fontSize: 12, color: G.text2, marginBottom: 10 }}>{coach.plan.summary}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {(coach.plan.dailyPlan || []).map((d, i) => (
+                        <div key={i} style={{ border: `1px solid ${G.border}`, borderRadius: 8, padding: 12, background: G.bg2 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700 }}>{d.day} — {d.focus}</div>
+                          <ul style={{ margin: '6px 0 0 18px', fontSize: 12, color: G.text }}>
+                            {(d.actions || []).map((a, ai) => <li key={ai}>{a}</li>)}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                    {Array.isArray(coach.plan.redFlags) && coach.plan.redFlags.length > 0 && (
+                      <div style={{ marginTop: 12, fontSize: 12, color: G.red }}>
+                        <strong>Red flags:</strong> {coach.plan.redFlags.join(' · ')}
+                      </div>
+                    )}
+                    {coach.plan.checkIn && (
+                      <div style={{ marginTop: 10, fontSize: 12, color: G.text2 }}>
+                        <strong>Check‑in:</strong> {coach.plan.checkIn}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
           {result ? (
             <>
               <div className="card card-lg" style={{
@@ -241,7 +409,7 @@ export default function BurnoutPredictor() {
                   {result.suggestions?.map((suggestion, i) => (
                     <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                       <span style={{ 
-                        fontSize: 16, fontWeight: 800, color: G.text2, 
+                        fontWeight: 800, color: G.text2, 
                         backgroundColor: G.bg2, width: 28, height: 28, 
                         borderRadius: '50%', display: 'flex', alignItems: 'center', 
                         justifyContent: 'center', flexShrink: 0, fontSize: 12 
@@ -270,4 +438,9 @@ export default function BurnoutPredictor() {
     </div>
   );
 }
+
+
+
+
+
 

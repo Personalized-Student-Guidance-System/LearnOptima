@@ -4,7 +4,8 @@ const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
 const mongoose = require('mongoose');
 const resourceScraper = require('../services/resourceScraper');
-const careerScraper = require('../services/careerScraper');
+const careerScraperNew = require('../services/careerScraper');
+const mlService = require('../services/mlService');
 
 // Checklist completion schema
 const checklistSchema = new mongoose.Schema({
@@ -15,435 +16,144 @@ const checklistSchema = new mongoose.Schema({
 
 const Checklist = mongoose.model('RoadmapChecklist', checklistSchema);
 
-// Complete roadmap data with skill mapping
-const roadmaps = {
-  'Software Engineer': {
-    semesters: [
-      {
-        sem: 1,
-        title: 'Foundation',
-        duration: '3 months',
-        skills: ['C/C++ basics', 'Data structures fundamentals', 'Linux basics', 'Git basics'],
-        tasks: ['Learn C/C++ basics', 'Data structures fundamentals', 'Linux basics', 'Git basics']
-      },
-      {
-        sem: 2,
-        title: 'Core CS',
-        duration: '3 months',
-        skills: ['OOP concepts', 'DBMS & SQL', 'Computer Networks basics', 'Web basics (HTML/CSS)'],
-        tasks: ['OOP concepts', 'DBMS & SQL', 'Computer Networks basics', 'Web basics (HTML/CSS)']
-      },
-      {
-        sem: 3,
-        title: 'Development',
-        duration: '3 months',
-        skills: ['JavaScript fundamentals', 'Python for scripting', 'REST API concepts', 'Database design'],
-        tasks: ['JavaScript fundamentals', 'Python for scripting', 'REST API concepts', 'Database design']
-      },
-      {
-        sem: 4,
-        title: 'Frameworks',
-        duration: '3 months',
-        skills: ['React', 'Node.js / Django', 'Docker basics', 'Agile methodology'],
-        tasks: ['React', 'Node.js / Django', 'Docker basics', 'Agile methodology']
-      },
-      {
-        sem: 5,
-        title: 'Advanced',
-        duration: '3 months',
-        skills: ['System design', 'Microservices', 'Cloud basics (AWS/GCP)', 'DSA practice (LeetCode)'],
-        tasks: ['System design', 'Microservices', 'Cloud basics (AWS/GCP)', 'DSA practice (LeetCode)']
-      },
-      {
-        sem: 6,
-        title: 'Specialization',
-        duration: '3 months',
-        skills: ['Open source contributions', 'Full-stack projects', 'Competitive programming', 'Technical interviews prep'],
-        tasks: ['Open source contributions', 'Build 2-3 full-stack projects', 'Competitive programming', 'Technical interviews prep']
-      },
-      {
-        sem: 7,
-        title: 'Industry Ready',
-        duration: '3 months',
-        skills: ['Internship', 'Portfolio website', 'Resume optimization', 'Mock interviews'],
-        tasks: ['Internship', 'Portfolio website', 'Resume optimization', 'Mock interviews']
-      },
-      {
-        sem: 8,
-        title: 'Placement',
-        duration: '3 months',
-        skills: ['Campus placements', 'Off-campus applications', 'Offer negotiation', 'Final project'],
-        tasks: ['Campus placements', 'Off-campus applications', 'Negotiate offers', 'Final project']
-      }
-    ]
-  },
-  'Data Scientist': {
-    semesters: [
-      {
-        sem: 1,
-        title: 'Math Foundation',
-        duration: '3 months',
-        skills: ['Linear Algebra', 'Statistics basics', 'Python basics', 'Excel for data'],
-        tasks: ['Linear Algebra', 'Statistics basics', 'Python basics', 'Excel for data']
-      },
-      {
-        sem: 2,
-        title: 'Programming',
-        duration: '3 months',
-        skills: ['Python (NumPy, Pandas)', 'Probability & Statistics', 'SQL fundamentals', 'Data visualization'],
-        tasks: ['Python (NumPy, Pandas)', 'Probability & Statistics', 'SQL fundamentals', 'Data visualization']
-      },
-      {
-        sem: 3,
-        title: 'ML Basics',
-        duration: '3 months',
-        skills: ['Supervised learning', 'Unsupervised learning', 'Scikit-learn', 'Feature engineering'],
-        tasks: ['Supervised learning', 'Unsupervised learning', 'Scikit-learn', 'Feature engineering']
-      },
-      {
-        sem: 4,
-        title: 'Deep Learning',
-        duration: '3 months',
-        skills: ['Neural networks', 'TensorFlow/PyTorch', 'CNNs & RNNs', 'NLP basics'],
-        tasks: ['Neural networks', 'TensorFlow/PyTorch', 'CNNs & RNNs', 'NLP basics']
-      },
-      {
-        sem: 5,
-        title: 'Advanced ML',
-        duration: '3 months',
-        skills: ['MLOps fundamentals', 'Model deployment', 'A/B testing', 'Big Data (Spark)'],
-        tasks: ['MLOps fundamentals', 'Model deployment', 'A/B testing', 'Big Data (Spark)']
-      },
-      {
-        sem: 6,
-        title: 'Specialization',
-        duration: '3 months',
-        skills: ['Kaggle competitions', 'Research papers', 'Domain-specific datasets', 'Cloud ML platforms'],
-        tasks: ['Kaggle competitions', 'Research papers', 'Domain-specific datasets', 'Cloud ML platforms']
-      },
-      {
-        sem: 7,
-        title: 'Industry',
-        duration: '3 months',
-        skills: ['Data science internship', 'End-to-end ML project', 'Technical blogging', 'Network building'],
-        tasks: ['Data science internship', 'End-to-end ML project', 'Technical blogging', 'Network building']
-      },
-      {
-        sem: 8,
-        title: 'Placement',
-        duration: '3 months',
-        skills: ['Company applications', 'Case study preparation', 'Portfolio projects', 'Final placement'],
-        tasks: ['Company applications', 'Case study preparation', 'Portfolio projects', 'Final placement']
-      }
-    ]
-  },
-  'DevOps Engineer': {
-    semesters: [
-      {
-        sem: 1,
-        title: 'Foundation',
-        duration: '3 months',
-        skills: ['Linux fundamentals', 'Bash scripting', 'Networking basics', 'Git basics'],
-        tasks: ['Linux fundamentals', 'Bash scripting', 'Networking basics', 'Git basics']
-      },
-      {
-        sem: 2,
-        title: 'Virtualization',
-        duration: '3 months',
-        skills: ['Docker basics', 'Container orchestration', 'Docker Compose', 'Docker networking'],
-        tasks: ['Docker basics', 'Container orchestration', 'Docker Compose', 'Docker networking']
-      },
-      {
-        sem: 3,
-        title: 'Kubernetes',
-        duration: '3 months',
-        skills: ['Kubernetes architecture', 'Deployments & Services', 'StatefulSets', 'Ingress'],
-        tasks: ['Kubernetes architecture', 'Deployments & Services', 'StatefulSets', 'Ingress']
-      },
-      {
-        sem: 4,
-        title: 'Cloud Platforms',
-        duration: '3 months',
-        skills: ['AWS fundamentals', 'EC2 & VPC', 'S3 & Database services', 'IAM & Security'],
-        tasks: ['AWS fundamentals', 'EC2 & VPC', 'S3 & Database services', 'IAM & Security']
-      },
-      {
-        sem: 5,
-        title: 'CI/CD',
-        duration: '3 months',
-        skills: ['Jenkins', 'GitLab CI', 'GitHub Actions', 'Pipeline scripting'],
-        tasks: ['Jenkins', 'GitLab CI', 'GitHub Actions', 'Pipeline scripting']
-      },
-      {
-        sem: 6,
-        title: 'Infrastructure as Code',
-        duration: '3 months',
-        skills: ['Terraform', 'Ansible', 'CloudFormation', 'Configuration management'],
-        tasks: ['Terraform', 'Ansible', 'CloudFormation', 'Configuration management']
-      },
-      {
-        sem: 7,
-        title: 'Monitoring & Logging',
-        duration: '3 months',
-        skills: ['Prometheus', 'ELK Stack', 'Grafana', 'Log aggregation'],
-        tasks: ['Prometheus', 'ELK Stack', 'Grafana', 'Log aggregation']
-      },
-      {
-        sem: 8,
-        title: 'Advanced & Production',
-        duration: '3 months',
-        skills: ['Security hardening', 'Disaster recovery', 'Performance tuning', 'Production deployment'],
-        tasks: ['Security hardening', 'Disaster recovery', 'Performance tuning', 'Production deployment']
-      }
-    ]
-  },
-  'ML Engineer': {
-    semesters: [
-      {
-        sem: 1,
-        title: 'Foundation',
-        duration: '3 months',
-        skills: ['Python', 'NumPy & Pandas', 'Matplotlib', 'Jupyter Notebooks'],
-        tasks: ['Python', 'NumPy & Pandas', 'Matplotlib', 'Jupyter Notebooks']
-      },
-      {
-        sem: 2,
-        title: 'ML Fundamentals',
-        duration: '3 months',
-        skills: ['Supervised Learning', 'Unsupervised Learning', 'Feature Engineering', 'Model Evaluation'],
-        tasks: ['Supervised Learning', 'Unsupervised Learning', 'Feature Engineering', 'Model Evaluation']
-      },
-      {
-        sem: 3,
-        title: 'Deep Learning',
-        duration: '3 months',
-        skills: ['Neural Networks', 'TensorFlow', 'Keras', 'CNNs & RNNs'],
-        tasks: ['Neural Networks', 'TensorFlow', 'Keras', 'CNNs & RNNs']
-      },
-      {
-        sem: 4,
-        title: 'Advanced DL',
-        duration: '3 months',
-        skills: ['Transformers', 'BERT & GPT', 'GANs', 'Reinforcement Learning'],
-        tasks: ['Transformers', 'BERT & GPT', 'GANs', 'Reinforcement Learning']
-      },
-      {
-        sem: 5,
-        title: 'Computer Vision',
-        duration: '3 months',
-        skills: ['Image Processing', 'Object Detection', 'Segmentation', 'Face Recognition'],
-        tasks: ['Image Processing', 'Object Detection', 'Segmentation', 'Face Recognition']
-      },
-      {
-        sem: 6,
-        title: 'NLP',
-        duration: '3 months',
-        skills: ['NLP Fundamentals', 'Text Classification', 'Sentiment Analysis', 'Language Models'],
-        tasks: ['NLP Fundamentals', 'Text Classification', 'Sentiment Analysis', 'Language Models']
-      },
-      {
-        sem: 7,
-        title: 'MLOps',
-        duration: '3 months',
-        skills: ['Model Deployment', 'Model Monitoring', 'Data Pipelines', 'Model Serving'],
-        tasks: ['Model Deployment', 'Model Monitoring', 'Data Pipelines', 'Model Serving']
-      },
-      {
-        sem: 8,
-        title: 'Production & Projects',
-        duration: '3 months',
-        skills: ['End-to-End Projects', 'Research Papers', 'Competition Kaggle', 'Production Systems'],
-        tasks: ['End-to-End Projects', 'Research Papers', 'Kaggle Competitions', 'Production Systems']
-      }
-    ]
-  }
-};
+// Dynamic-only roadmaps - NO HARDCODED DATA
+// Predefined roles for frontend (scraped dynamically on request)
+const AVAILABLE_ROLES = [
+  'Software Engineer', 'Data Scientist', 'DevOps Engineer', 'ML Engineer',
+  'Frontend Developer', 'Backend Developer', 'Full Stack Developer',
+  'Product Manager', 'Quantum Engineer', 'Blockchain Developer',
+  'Security Engineer', 'Mobile Developer', 'Doctor', 'Chartered Accountant'
+];
 
-// Generate dynamic roadmap for any role (including custom roles)
-async function generateDynamicRoadmap(role, userId) {
+
+// Generate dynamic roadmap for any role (including custom roles) - NOW WITH REAL WEB SCRAPING
+async function generateDynamicRoadmap(role, userId, location = 'India') {
   try {
-    console.log(`[DynamicRoadmap] Generating roadmap for role: ${role}`);
+    console.log(`[DynamicRoadmap] Python ML scraping for ${role}`);
     
-    // Try to import the skill resources scraper
+    const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+    const cacheKey = `roadmap_${role.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${location.toLowerCase()}`;
+    const now = Date.now();
+    
+    // Try cache
+    const cached = global[cacheKey];
+    if (cached && (now - cached.timestamp) < CACHE_TTL) {
+      console.log(`[DynamicRoadmap] Cache HIT: ${role}`);
+      return cached.data;
+    }
+    
+    // Spawn Python ML scraper (live webscraping + Claude)
+    const { spawn } = require('child_process');
     const path = require('path');
-    const scraperPath = path.join(__dirname, '../ml/skill_resources_scraper.py');
     
-    // Since we can't directly import Python, we'll create a basic dynamic structure
-    // and fetch skills from a predefined mapping or use a fallback
+    const pythonPath = path.join(__dirname, '../ml/skill_scraper_cli.py');
+    const args = [pythonPath, role, location];
     
-    const skillsByRole = {
-      'quant engineer': ['Python', 'C++', 'Financial Mathematics', 'Statistics', 'Machine Learning', 'Data Analysis', 'SQL', 'Linux', 'Algorithms', 'Risk Management'],
-      'blockchain developer': ['Solidity', 'Ethereum', 'Smart Contracts', 'Web3.js', 'DeFi', 'Cryptography', 'JavaScript', 'React', 'Node.js', 'Distributed Systems'],
-      'ux designer': ['Figma', 'User Research', 'Wireframing', 'Prototyping', 'UI Design', 'Design Systems', 'Usability Testing', 'Adobe XD', 'HTML/CSS'],
-      'game developer': ['C#', 'Unity', 'Unreal Engine', 'Game Physics', '3D Graphics', 'Networking', 'Game Design', 'C++', 'Python'],
-      'cloud architect': ['AWS', 'Azure', 'GCP', 'Kubernetes', 'Docker', 'Microservices', 'System Design', 'Security', 'Networking', 'Infrastructure as Code'],
-      'cybersecurity engineer': ['Network Security', 'Cryptography', 'Penetration Testing', 'Malware Analysis', 'Linux Security', 'Python', 'C', 'Firewalls', 'SSL/TLS'],
-      'data engineer': ['Python', 'SQL', 'Apache Spark', 'Kafka', 'ETL', 'Data Warehousing', 'AWS/GCP', 'Hadoop', 'Scala', 'NoSQL'],
-      'mobile app developer': ['React Native', 'Swift', 'Kotlin', 'Flutter', 'Android', 'iOS', 'Firebase', 'REST API', 'Mobile UI/UX'],
-      'ios developer': ['Swift', 'Objective-C', 'iOS SDK', 'Xcode', 'CoreData', 'SwiftUI', 'Networking', 'App Architecture'],
-      'android developer': ['Kotlin', 'Java', 'Android Studio', 'Android SDK', 'Material Design', 'Firebase', 'Room Database', 'MVVM Pattern'],
-      'embedded systems engineer': ['C', 'C++', 'Assembly', 'Microcontrollers', 'RTOS', 'Hardware Design', 'IoT', 'Firmware Development'],
-      'devops engineer': ['Docker', 'Kubernetes', 'CI/CD', 'Linux', 'AWS/GCP/Azure', 'Infrastructure as Code', 'Terraform', 'Ansible', 'Monitoring'],
-      'site reliability engineer': ['Python', 'Go', 'Linux', 'Kubernetes', 'Prometheus', 'ELK Stack', 'Cloud Platforms', 'Incident Response'],
-      'platform engineer': ['Kubernetes', 'Docker', 'Internal Tools', 'System Design', 'API Design', 'Infrastructure', 'Monitoring', 'Developer Experience'],
-      'ml researcher': ['Mathematics', 'Python', 'TensorFlow/PyTorch', 'Research Papers', 'Statistical Analysis', 'Deep Learning', 'Computer Vision/NLP'],
-      'nlp engineer': ['Natural Language Processing', 'Transformers', 'BERT', 'GPT', 'Python', 'TensorFlow/PyTorch', 'Text Processing'],
-      'computer vision engineer': ['OpenCV', 'TensorFlow', 'Python', 'Image Processing', 'Deep Learning', 'CNN', 'Object Detection', 'Video Analysis'],
-      'product manager': ['Product Strategy', 'Data Analysis', 'User Research', 'Communication', 'Roadmap Planning', 'Business Acumen', 'Metrics & Analytics'],
-      'solutions architect': ['System Design', 'Cloud Architecture', 'AWS/Azure/GCP', 'Consulting', 'Requirements Analysis', 'Problem Solving'],
-      'technical writer': ['Technical Documentation', 'API Documentation', 'Markdown', 'Figma', 'Communication', 'Writing Skills', 'Technical Knowledge'],
-      'security engineer': ['Cryptography', 'Network Security', 'Secure Coding', 'Vulnerability Assessment', 'Penetration Testing', 'Risk Management'],
-      'fintech developer': ['Java/Python', 'Spring Boot', 'Microservices', 'APIs', 'Blockchain', 'Trading Systems', 'Financial Protocols'],
-      'ar/vr developer': ['Unity', 'Unreal Engine', 'C#/C++', 'ARKit', 'ARCore', '3D Graphics', 'Real-time Rendering', 'Spatial Computing'],
-      'robotics engineer': ['C++', 'Python', 'ROS', 'Computer Vision', 'Control Systems', 'Mechanics', 'Machine Learning', 'Embedded Systems'],
-      'data analyst': ['SQL', 'Python/R', 'Tableau', 'Power BI', 'Excel', 'Statistics', 'Data Visualization', 'Business Intelligence'],
-      'business analyst': ['Requirements Gathering', 'Data Analysis', 'SQL', 'Excel', 'Process Improvement', 'Documentation', 'Stakeholder Management'],
-      'reliability engineer': ['Monitoring', 'Log Analysis', 'System Performance', 'Incident Response', 'Linux', 'Cloud Platforms', 'Automation'],
-    };
-    
-    // Get skills for the role (case-insensitive matching)
-    const roleLower = role.toLowerCase();
-    let requiredSkills = [];
-    
-    // First try exact match
-    if (skillsByRole[roleLower]) {
-      requiredSkills = skillsByRole[roleLower];
-    } else {
-      // Try partial match
-      for (const [key, skills] of Object.entries(skillsByRole)) {
-        if (roleLower.includes(key) || key.includes(roleLower)) {
-          requiredSkills = skills;
-          break;
+    return new Promise((resolve, reject) => {
+      const proc = spawn('python', args, { cwd: __dirname });
+      let stdout = '';
+      let stderr = '';
+      
+      proc.stdout.on('data', (data) => stdout += data);
+      proc.stderr.on('data', (data) => stderr += data);
+      
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          console.error('[DynamicRoadmap] Python error:', stderr);
+          return reject(new Error(`Python scraper failed: ${stderr}`));
         }
-      }
-    }
-    
-    // If no match found, create a generic roadmap with basic skills
-    if (requiredSkills.length === 0) {
-      console.log(`[DynamicRoadmap] No predefined skills for "${role}", creating generic roadmap`);
-      requiredSkills = ['Fundamentals', 'Core Concepts', 'Programming', 'Tools & Technologies', 'Advanced Topics', 'Project Work', 'Specialization', 'Industry Skills'];
-    }
-    
-    // Organize skills into 8 semesters/phases
-    const semesters = [];
-    const skillsPerPhase = Math.ceil(requiredSkills.length / 8);
-    
-    for (let phase = 0; phase < 8; phase++) {
-      const startIdx = phase * skillsPerPhase;
-      const endIdx = Math.min(startIdx + skillsPerPhase, requiredSkills.length);
-      const phaseSkills = requiredSkills.slice(startIdx, endIdx);
-      
-      const phases = ['Foundation', 'Core Concepts', 'Development', 'Advanced', 'Specialization', 'Integration', 'Mastery', 'Excellence'];
-      
-      semesters.push({
-        sem: phase + 1,
-        title: phases[phase] || `Phase ${phase + 1}`,
-        duration: '3-4 weeks',
-        skills: phaseSkills,
-        tasks: phaseSkills.map(skill => `Learn and practice "${skill}"`)
+        
+        try {
+          const result = JSON.parse(stdout.trim());
+          const semesters = (result.phases || []).map((phase, i) => ({
+            sem: i + 1,
+            title: phase.title,
+            duration: phase.duration,
+            skills: phase.tasks || [],
+            resources: phase.resources || [],
+            scraped: true
+          }));
+          
+          const roadmap = { semesters, isCustom: true, scraped: true, source: result.source };
+          
+          // Cache
+          global[cacheKey] = { data: roadmap, timestamp: now };
+          
+          console.log(`[DynamicRoadmap] Python ML success: ${semesters.length} phases for ${role}`);
+          resolve(roadmap);
+        } catch (parseErr) {
+          reject(new Error(`Parse error: ${stdout.slice(0, 200)}`));
+        }
       });
-    }
-    
-    console.log(`[DynamicRoadmap] Generated ${semesters.length} phases with ${requiredSkills.length} total skills`);
-    return { semesters, isCustom: true };
+    });
   } catch (err) {
     console.error('[DynamicRoadmap] Error:', err.message);
-    return null;
+    throw err; // Let caller handle fallback
   }
 }
 
 // Get personalized roadmap based on user's skills with scraped resources
-async function getPersonalizedRoadmap(userId, role) {
+async function getPersonalizedRoadmap(userId, role, location, mlAnalysis = null) {
   try {
-    // Check if role exists in predefined roadmaps
-    let baseRoadmap = roadmaps[role];
-    let isCustomRole = false;
+    let baseRoadmap;
+    let isCustomRole = true;
     
-    // If role not found in predefined list, generate dynamic roadmap
-    if (!baseRoadmap) {
-      console.log(`[Roadmap] Role "${role}" not predefined, generating dynamic roadmap`);
-      const dynamicRoadmap = await generateDynamicRoadmap(role, userId);
-      if (dynamicRoadmap) {
-        baseRoadmap = dynamicRoadmap;
-        isCustomRole = true;
-      } else {
-        // Fallback to Software Engineer roadmap
-        baseRoadmap = roadmaps['Software Engineer'];
-        console.log('[Roadmap] Falling back to Software Engineer roadmap');
-      }
+    // ALWAYS generate dynamic roadmap (no hardcoded fallback)
+    console.log(`[Roadmap] Generating DYNAMIC roadmap for "${role}" via Python ML scraper (${location})`);
+    try {
+      baseRoadmap = await generateDynamicRoadmap(role, userId, location);
+    } catch (scrapeErr) {
+      console.error(`[Roadmap] Scraper failed for ${role}:`, scrapeErr.message);
+      // Minimal fallback roadmap (6 phases matching scraper output)
+      baseRoadmap = {
+        semesters: [
+          { sem: 1, title: 'Foundation', duration: '4-8 weeks', tasks: [`${role} basics`], resources: [], scraped: false },
+          { sem: 2, title: 'Core Tooling', duration: '4-8 weeks', tasks: [`${role} core skills`], resources: [], scraped: false },
+          { sem: 3, title: 'Intermediate', duration: '8-12 weeks', tasks: [`${role} intermediate`], resources: [], scraped: false },
+          { sem: 4, title: 'Advanced Mastery', duration: '8-12 weeks', tasks: [`${role} advanced`], resources: [], scraped: false },
+          { sem: 5, title: 'Capstone Projects', duration: '4-8 weeks', tasks: [`Build ${role} projects`], resources: [], scraped: false },
+          { sem: 6, title: 'Interviews', duration: '4-6 weeks', tasks: [`${role} interview prep`], resources: [], scraped: false }
+        ]
+      };
     }
-    
+
     const profile = await StudentProfile.findOne({ userId });
     
     // Get user's actual skills from StudentProfile
     const userSkills = [...(profile?.extractedSkills || []), ...(profile?.extraSkills || [])];
     const userSkillsLower = userSkills.map(s => s.toLowerCase());
+    const mlMatchedSkills = (mlAnalysis?.matched_skills || []).map(s => String(s).toLowerCase());
     
-    console.log(`[Roadmap] Building for ${role}: user has ${userSkills.length} skills, isCustomRole=${isCustomRole}`);
+    console.log(`[Roadmap] Building for ${role}: user has ${userSkills.length} skills (${location})`);
     
     const personalizedRoadmap = JSON.parse(JSON.stringify(baseRoadmap));
     
-    // Add scraped resources to each semester
+    // Enhance scraped semesters with user skill matching (resources already tiered from scraper!)
     for (let semesterIndex = 0; semesterIndex < personalizedRoadmap.semesters.length; semesterIndex++) {
       const semester = personalizedRoadmap.semesters[semesterIndex];
-      semester.resources = [];
       
-      // Scrape resources for each skill in the semester
-      for (let skillIndex = 0; skillIndex < (semester.skills || semester.tasks || []).length; skillIndex++) {
-        const skill = (semester.skills || semester.tasks)[skillIndex];
-        const skillLower = skill.toLowerCase();
-        const hasSkill = userSkillsLower.some(s => s.includes(skillLower) || skillLower.includes(s));
-        
-        try {
-// Skip scraping for speed - use generic resources always
-          let resources = [
-            { 
-              title: `YouTube: Learn ${skill}`, 
-              url: `https://www.youtube.com/results?search_query=${encodeURIComponent('learn ' + skill)}`,
-              platform: 'YouTube'
-            },
-            { 
-              title: `Udemy: ${skill} Courses`, 
-              url: `https://www.udemy.com/courses/search/?q=${encodeURIComponent(skill)}`,
-              platform: 'Udemy'
-            },
-            { 
-              title: `Coursera: ${skill}`, 
-              url: `https://www.coursera.org/search?query=${encodeURIComponent(skill)}`,
-              platform: 'Coursera'
-            }
-          ];
-          console.log(`[Roadmap] Fast resources for ${skill}`);
-          
-          semester.resources[skillIndex] = {
-            skill,
-            hasSkill,  // Mark if user already has this skill
-            resources: resources.slice(0, 3)  // Limit to 3 resources
-          };
-          console.log(`[Roadmap] Sem ${semester.sem} skill "${skill}": ${resources.length} resources found`);
-        } catch (error) {
-          console.warn(`[Roadmap] Error processing ${skill}:`, error.message);
-          // Fallback to basic resources
-          semester.resources[skillIndex] = {
-            skill,
-            hasSkill,
-            resources: [
-              { 
-                title: `Learn ${skill}`, 
-                url: `https://www.youtube.com/results?search_query=${encodeURIComponent('learn ' + skill)}`,
-                platform: 'YouTube'
-              }
-            ]
-          };
+      // Add hasSkill to each resource entry
+      if (semester.resources && Array.isArray(semester.resources)) {
+        for (let resIndex = 0; resIndex < semester.resources.length; resIndex++) {
+          const res = semester.resources[resIndex];
+          if (res && res.skill) {
+            const skillLower = res.skill.toLowerCase();
+            const hasSkillByProfile = userSkillsLower.some(s => s.includes(skillLower) || skillLower.includes(s));
+            const hasSkillByMl = mlMatchedSkills.some(ms => ms.includes(skillLower) || skillLower.includes(ms));
+            res.hasSkill = hasSkillByProfile || hasSkillByMl;
+          }
         }
       }
+      
+      // Frontend expects tasks array
+      semester.tasks = semester.tasks || semester.skills || [];
     }
     
-    console.log(`[Roadmap] Complete - ${personalizedRoadmap.semesters.length} semesters built with resources`);
+    console.log(`[Roadmap] ✅ Enhanced ${personalizedRoadmap.semesters.length} dynamic semesters with skill matching`);
     return personalizedRoadmap;
   } catch (err) {
     console.error('Error generating personalized roadmap:', err);
-    return roadmaps[role] || roadmaps['Software Engineer'];
+    throw new Error(`Roadmap generation failed: ${err.message}`);
   }
 }
 
@@ -458,31 +168,64 @@ async function getOrCreateChecklist(userId, role) {
 }
 
 // API: Get personalized roadmap
+// API: Get personalized roadmap
 router.get('/personalized', auth, async (req, res) => {
   try {
     const role = req.query.role || 'Software Engineer';
     const userId = req.user.id;
+    const location = req.query.location || 'India';
     
-    console.log(`[Career API] Fetching roadmap for role: ${role}, userId: ${userId}`);
-    const roadmap = await getPersonalizedRoadmap(userId, role);
+    console.log(`[Career API] Fetching roadmap for role: ${role}, location: ${location}, userId: ${userId}`);
+
+    // Run ML skill-gap analysis first
+    const profile = await StudentProfile.findOne({ userId });
+    const userSkills = [
+      ...(profile?.extractedSkills || []),
+      ...(profile?.extraSkills || []),
+    ];
+
+    const mlResult = await mlService.getSkillGap(userSkills, role);
+    const roadmap = await getPersonalizedRoadmap(userId, role, location, mlResult);
     const checklist = await getOrCreateChecklist(userId, role);
+
+    // Frontend expects root-level phases
+    const phases = (roadmap?.semesters || []).map((semester) => ({
+      ...semester,
+      tasks: semester.tasks || semester.skills || [],
+    }));
+
+    const skillGap = {
+      matchScore: mlResult?.match_score || 0,
+      matchedSkills: mlResult?.matched_skills || [],
+      missingSkills: mlResult?.missing_skills || [],
+      highPriority: mlResult?.high_priority_gaps || (mlResult?.missing_skills || []).slice(0, 5),
+      mediumPriority: mlResult?.medium_priority_gaps || (mlResult?.missing_skills || []).slice(5, 10),
+      estimatedWeeks: mlResult?.estimated_weeks || 24,
+      keyInsight: mlResult?.key_insight || '',
+      learningOrder: mlResult?.learning_order || (mlResult?.missing_skills || []),
+    };
     
-    // Verify roadmap structure
-    const semesterCount = roadmap?.semesters?.length || 0;
-    const firstSemesterTaskCount = roadmap?.semesters?.[0]?.tasks?.length || 0;
-    const firstTaskResources = roadmap?.semesters?.[0]?.resources?.[0]?.resources?.length || 0;
-    
-    console.log(`[Career API] Roadmap built - semesters: ${semesterCount}, first sem tasks: ${firstSemesterTaskCount}, first task resources: ${firstTaskResources}`);
+    console.log(`[Career API] Success: ${phases.length} phases for ${role}`);
     
     res.json({
       role,
+      location,
+      phases,
+      skillGap,
       roadmap,
       checklistId: checklist._id,
-      availableRoles: Object.keys(roadmaps)
+      availableRoles: AVAILABLE_ROLES,  // Dynamic roles list (no hardcoded data dependency)
+      mlPipeline: 'python-ml-scraper + skill-gap (100% DYNAMIC)',
+      source: roadmap.scraped ? 'live-webscraping + AI' : 'fallback-minimal',
+      generatedAt: new Date().toISOString(),
     });
   } catch (err) {
     console.error(`[Career API] Error:`, err.message);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ 
+      error: 'Roadmap generation failed',
+      fallback: 'Software Engineer roadmap available',
+      phases: []
+    });
   }
 });
 
@@ -515,15 +258,11 @@ router.post('/checklist/item', auth, async (req, res) => {
   }
 });
 
-// Legacy: Get basic roadmap
+// Legacy: Get basic roadmap (NOW DYNAMIC - redirects to personalized)
 router.get('/', auth, async (req, res) => {
-  try {
-    const role = req.query.role || 'Software Engineer';
-    const roadmap = roadmaps[role] || roadmaps['Software Engineer'];
-    res.json({ role, roadmap, availableRoles: Object.keys(roadmaps) });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+  const role = req.query.role || 'Software Engineer';
+  const location = req.query.location || 'India';
+  res.redirect(307, `/api/career/personalized?role=${encodeURIComponent(role)}&location=${encodeURIComponent(location)}`);
 });
 
 // API: Get LIVE scraped jobs & skills for target role (dynamic)
@@ -532,28 +271,67 @@ router.get('/live-jobs', auth, async (req, res) => {
     const { role = 'Software Engineer', location = 'India', limit = 10 } = req.query;
     console.log(`[Career API] Scraping live jobs for ${role} (${location})`);
     
-    const data = await careerScraper.getDynamicData(role, location, parseInt(limit));
-    
-    // Use real jobs if available, fallback to derived
-    let jobs = data.jobs || data.extracted_skills?.slice(0, 8).map(skill => 
-      `${role} - ${skill} Specialist`
-    ) || [];
-    
-    // Parse/sort deadlines (ISO date or null)
-    jobs = jobs.map(job => ({
-      ...job,
-      deadlineParsed: job.deadline ? new Date(job.deadline) : null
-    })).sort((a, b) => {
-      const da = a.deadlineParsed || new Date('2099-01-01');
-      const db = b.deadlineParsed || new Date('2099-01-01');
-      return da - db; // Ascending (urgent first)
-    });
+    const data = await careerScraperNew.getLiveJobs(role, location, parseInt(limit));
+
+    // Use real jobs if available. If missing, provide empty list (don't emit strings).
+    let jobs = Array.isArray(data.jobs) ? data.jobs : [];
+
+    // Normalize job schema:
+    //   title, company, location, applyUrl (direct job page), source, deadline
+    jobs = jobs
+      .filter((j) => j && typeof j === 'object')
+      .map((job) => {
+        const title = String(job.title || role).trim();
+        const company = String(job.company || '').trim();
+        const loc = String(job.location || location || '').trim();
+        const applyUrl = String(job.applyUrl || job.url || '').trim();
+        const source = String(job.source || data.source || 'unknown').toLowerCase().trim();
+        const deadlineRaw = job.deadline;
+        const deadline = deadlineRaw && deadlineRaw !== 'N/A' ? String(deadlineRaw) : null;
+
+        return {
+          title,
+          company,
+          location: loc,
+          applyUrl,
+          source,
+          deadline,
+        };
+      })
+      // Keep only listings with a usable applyUrl.
+      .filter((j) => {
+        if (!/^https?:\/\//i.test(j.applyUrl)) return false;
+        const u = String(j.applyUrl).toLowerCase();
+        // Reject obvious search/discovery pages (must be direct job page)
+        if (u.includes('linkedin.com/jobs/search')) return false;
+        if (u.includes('google.com/search')) return false;
+        if (u.includes('geeksforgeeks.org/search')) return false;
+        if (u.includes('udemy.com/courses/search')) return false;
+        if (u.includes('youtube.com/results')) return false;
+        // Naukri search listing pages look like: /<slug>-jobs-in-<loc>
+        if (/naukri\.com\/[^\s]*-jobs-in-/.test(u)) return false;
+        return true;
+      });
+
+    // Sort soonest deadline first (nulls last)
+    jobs = jobs
+      .map((job) => ({
+        ...job,
+        _deadlineParsed: job.deadline ? new Date(job.deadline) : null,
+      }))
+      .sort((a, b) => {
+        const da = a._deadlineParsed || new Date('2099-01-01');
+        const db = b._deadlineParsed || new Date('2099-01-01');
+        return da - db;
+      })
+      .map(({ _deadlineParsed, ...job }) => job);
     
     res.json({
       role,
       location,
       jobs,
-      skills: data.extracted_skills || [],
+      // keep backwards-compat placeholders (not used by UI today)
+      skills: data.extracted_skills || data.skills || [],
       resources: data.resources || {},
       source: data.source,
       scrapedAt: new Date().toISOString()

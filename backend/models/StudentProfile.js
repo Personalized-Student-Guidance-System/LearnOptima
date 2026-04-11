@@ -39,6 +39,29 @@ const studentProfileSchema = new mongoose.Schema({
     exerciseTime: { type: Number, min: 0 },
     socialTime: { type: Number, min: 0 }
   },
+
+  // Agentic burnout coach state (backend-driven conversation)
+  burnoutCoach: {
+    threadId: { type: String },
+    stage: { type: String, default: 'intro' },
+    lastRisk: {
+      score: { type: Number },
+      level: { type: String },
+      confidence: { type: Number },
+      predictedAt: { type: Date },
+    },
+    plan: { type: mongoose.Schema.Types.Mixed, default: null },
+    messages: {
+      type: [
+        {
+          role: { type: String, enum: ['user', 'assistant', 'system'], required: true },
+          content: { type: String, required: true },
+          createdAt: { type: Date, default: Date.now },
+        }
+      ],
+      default: [],
+    },
+  },
 }, { timestamps: true, collection: 'studentprofiles' });
 
 module.exports = mongoose.model('StudentProfile', studentProfileSchema);

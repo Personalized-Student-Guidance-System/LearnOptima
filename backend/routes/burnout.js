@@ -4,13 +4,15 @@ const axios = require('axios');
 const StudySession = require('../models/StudySession');
 const StudentProfile = require('../models/StudentProfile');
 const mongoose = require('mongoose');
+const { generateJson } = require('../services/geminiService');
 
-router.get('/burnout', auth, async (req, res) => {
+router.get('/', auth, async (req, res) => {
   try {
     const userId = req.user.id;
     
     // Try to get saved metrics first
-    let metrics = await StudentProfile.findOne({ userId: mongoose.Types.ObjectId(userId) }).then(p => p?.burnoutMetrics);
+    const profile = await StudentProfile.findOne({ userId: mongoose.Types.ObjectId(userId) });
+    let metrics = profile?.burnoutMetrics;
     
     if (!metrics) {
       // Fallback to study session average
@@ -50,7 +52,13 @@ router.get('/burnout', auth, async (req, res) => {
         deadlinePressure: 5,
         academicLoad: 5,
         exerciseTime: 3,
-        socialTime: 3
+        socialTime: 3,
+        _fromProfile: false,
+      };
+    } else {
+      metrics = {
+        ...metrics.toObject?.() || metrics,
+        _fromProfile: true,
       };
     }
     
@@ -155,5 +163,141 @@ router.post('/predict', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Agentic coach (backend-only) powered by Gemini
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _mkCoachIntro() {
+  return (
+    'I can help you reduce burnout risk with a short check-in. ' +
+    'Answer a few questions and I will create a plan you can follow for the next 7 days.\n\n' +
+    'Q1) How are you feeling today? (e.g., anxious/tired/okay)\n' +
+    'Q2) What is your biggest stressor right now?\n' +
+    'Q3) Do you have any urgent deadline in the next 7 days? If yes, what and when?'
+  );
+}
+
+async function _getOrCreateProfile(userId) {
+  const oid = mongoose.Types.ObjectId(userId);
+  let profile = await StudentProfile.findOne({ userId: oid });
+  if (!profile) {
+    profile = await StudentProfile.create({ userId: oid });
+  }
+  return profile;
+}
+
+function _appendCoachMessage(profile, role, content) {
+  profile.burnoutCoach = profile.burnoutCoach || {};
+  profile.burnoutCoach.messages = profile.burnoutCoach.messages || [];
+  profile.burnoutCoach.messages.push({ role, content, createdAt: new Date() });
+}
+
+function _latestMessages(profile, limit = 12) {
+  const msgs = profile?.burnoutCoach?.messages || [];
+  return msgs.slice(Math.max(0, msgs.length - limit));
+}
+
+// Start (or resume) a coaching thread
+router.post('/coach/start', auth, async (req, res) => {
+  try {
+    const profile = await _getOrCreateProfile(req.user.id);
+
+    if (!profile.burnoutCoach) profile.burnoutCoach = { stage: 'intro', messages: [] };
+
+    // If no messages yet, send intro
+    if (!profile.burnoutCoach.messages || profile.burnoutCoach.messages.length === 0) {
+      _appendCoachMessage(profile, 'assistant', _mkCoachIntro());
+      profile.burnoutCoach.stage = 'collecting';
+      profile.burnoutCoach.threadId = profile.burnoutCoach.threadId || `burnout_${profile.userId}_${Date.now()}`;
+      await profile.save();
+    }
+
+    res.json({
+      threadId: profile.burnoutCoach.threadId,
+      stage: profile.burnoutCoach.stage,
+      messages: _latestMessages(profile),
+      plan: profile.burnoutCoach.plan || null,
+      lastRisk: profile.burnoutCoach.lastRisk || null,
+      provider: process.env.GEMINI_API_KEY ? 'gemini' : 'fallback-unavailable',
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Submit a user message; assistant responds (may create/update plan)
+router.post('/coach/message', auth, async (req, res) => {
+  try {
+    const { message } = req.body || {};
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ message: 'message is required' });
+    }
+
+    const profile = await _getOrCreateProfile(req.user.id);
+    if (!profile.burnoutCoach) profile.burnoutCoach = { stage: 'intro', messages: [] };
+
+    _appendCoachMessage(profile, 'user', message.trim());
+
+    const metrics = profile.burnoutMetrics || {};
+    const lastMsgs = _latestMessages(profile, 12)
+      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .join('\n');
+
+    const schemaHint = (
+      'Schema: {'
+      + '"assistantReply": string,'
+      + '"nextQuestions": string[],'
+      + '"plan": {'
+      + '  "summary": string,'
+      + '  "dailyPlan": [{"day": string, "focus": string, "actions": string[]}],' 
+      + '  "redFlags": string[],'
+      + '  "checkIn": string'
+      + '} | null'
+      + '}'
+    );
+
+    const prompt = (
+      'You are an agentic burnout coach for a student.\n'
+      + 'Goal: ask concise follow-up questions when needed, and produce a practical 7-day plan.\n'
+      + 'Constraints: no medical claims; be supportive; keep reply short; be specific.\n\n'
+      + `User metrics (may be incomplete): ${JSON.stringify(metrics)}\n\n`
+      + 'Conversation so far:\n'
+      + lastMsgs
+      + '\n\n'
+      + 'If you have enough info, output a 7-day plan. Otherwise output nextQuestions.'
+    );
+
+    const ai = await generateJson({ prompt, schemaHint, model: 'gemini-1.5-flash', temperature: 0.3 });
+
+    const reply = String(ai.assistantReply || '').trim() || 'Thanks—tell me a bit more so I can tailor a plan.';
+    _appendCoachMessage(profile, 'assistant', reply);
+
+    if (ai.plan) {
+      profile.burnoutCoach.plan = ai.plan;
+      profile.burnoutCoach.stage = 'planned';
+    } else {
+      profile.burnoutCoach.stage = 'collecting';
+    }
+
+    await profile.save();
+
+    res.json({
+      threadId: profile.burnoutCoach.threadId,
+      stage: profile.burnoutCoach.stage,
+      assistantReply: reply,
+      nextQuestions: Array.isArray(ai.nextQuestions) ? ai.nextQuestions : [],
+      plan: profile.burnoutCoach.plan || null,
+      messages: _latestMessages(profile),
+      provider: 'gemini',
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
+
+
+
+
 
