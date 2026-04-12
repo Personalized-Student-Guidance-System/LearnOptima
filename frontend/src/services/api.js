@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: '/api',
 });
 
 // Add token to requests (use 'sf_token' to match AuthContext)
@@ -38,7 +38,10 @@ export const deleteSubject = (id) => API.delete(`/academic/${id}`);
 
 // Burnout
 export const getBurnoutData = () => API.get('/burnout');
-export const saveBurnoutData = (data) => API.post('/burnout', data);
+export const saveBurnoutData = (data) => API.post('/burnout/save-metrics', data);
+export const predictBurnout = (data) => API.post('/burnout/predict', data);
+export const startBurnoutCoach = () => API.post('/burnout/coach/start', {});
+export const sendBurnoutCoachMessage = (message) => API.post('/burnout/coach/message', { message });
 
 // Skills
 export const getSkills = () => API.get('/skills');

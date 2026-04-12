@@ -5,13 +5,229 @@ const StudySession = require('../models/StudySession');
 const StudentProfile = require('../models/StudentProfile');
 const mongoose = require('mongoose');
 const { generateJson } = require('../services/geminiService');
+const mlService = require('../services/mlService');
+
+const ROLE_RECALIBRATION_MAP = {
+  'machine learning engineer': [
+    {
+      role: 'Data Analyst',
+      reason: 'Build confidence with SQL, dashboards, exploratory analysis, and business storytelling before moving into end-to-end ML systems.',
+      nextStep: 'Complete 2 analytics projects using Python, SQL, and visualization tools.',
+    },
+    {
+      role: 'Junior Data Scientist',
+      reason: 'Focus on model building, evaluation, and feature engineering without the heavier MLOps expectations of ML engineering.',
+      nextStep: 'Practice regression, classification, and model evaluation on portfolio datasets.',
+    },
+  ],
+  'ml engineer': [
+    {
+      role: 'Data Analyst',
+      reason: 'A practical bridge role to strengthen data handling and decision-making fundamentals.',
+      nextStep: 'Ship one dashboard project and one SQL case study.',
+    },
+    {
+      role: 'Junior Data Scientist',
+      reason: 'Helps you strengthen model-building confidence before tackling deployment-heavy ML engineer workflows.',
+      nextStep: 'Create a small prediction project with clear metrics and documentation.',
+    },
+  ],
+  'data scientist': [
+    {
+      role: 'Data Analyst',
+      reason: 'A strong first step for mastering data cleaning, analysis, and communication before advanced modeling.',
+      nextStep: 'Build 2 dashboard/case-study projects and strengthen SQL.',
+    },
+  ],
+  'software engineer': [
+    {
+      role: 'Frontend Developer',
+      reason: 'Lets you demonstrate product-facing engineering skills with a narrower and more achievable scope.',
+      nextStep: 'Build and deploy 2 polished React projects.',
+    },
+    {
+      role: 'QA Engineer',
+      reason: 'Improves engineering habits, testing mindset, and SDLC exposure while you keep growing into broader software roles.',
+      nextStep: 'Learn API testing and automate one end-to-end test suite.',
+    },
+  ],
+};
+
+function normalizeRole(role = '') {
+  return String(role).trim().toLowerCase();
+}
+
+function getRoleRecalibrationSuggestions(targetRole, readinessScore = 0, missingSkills = []) {
+  const normalized = normalizeRole(targetRole);
+  const mapped = ROLE_RECALIBRATION_MAP[normalized] || [];
+
+  if (!targetRole) {
+    return {
+      readinessScore,
+      currentRole: null,
+      status: 'no-target-role',
+      message: 'Add a target career role in your profile to unlock goal recalibration guidance.',
+      suggestedRoles: [],
+    };
+  }
+
+  if (readinessScore >= 70) {
+    return {
+      readinessScore,
+      currentRole: targetRole,
+      status: 'on-track',
+      message: `Your readiness for ${targetRole} looks strong. Stay on this goal and deepen execution through projects and interview prep.`,
+      suggestedRoles: [],
+    };
+  }
+
+  if (readinessScore >= 45) {
+    return {
+      readinessScore,
+      currentRole: targetRole,
+      status: 'stretch',
+      message: `Your ${targetRole} goal is achievable, but it is still a stretch right now. Focus first on the top skill gaps: ${missingSkills.slice(0, 3).join(', ') || 'core fundamentals'}.`,
+      suggestedRoles: mapped.slice(0, 1),
+    };
+  }
+
+  return {
+    readinessScore,
+    currentRole: targetRole,
+    status: 'recalibrate',
+    message: `Your readiness for ${targetRole} is low right now, so a confidence-building intermediate goal would be smarter before aiming directly for it.`,
+    suggestedRoles: mapped.length
+      ? mapped
+      : [
+          {
+            role: 'Entry-Level Analyst',
+            reason: 'A narrower role can help you collect proof of work, momentum, and stronger fundamentals.',
+            nextStep: 'Pick one project-based role path and complete a portfolio piece in the next 2 weeks.',
+          },
+        ],
+  };
+}
+
+function buildInterventionPlan(metrics, level, score) {
+  const interventions = [];
+  const accountabilityPrompts = [];
+
+  if (metrics.studyHours >= 4) {
+    interventions.push({
+      type: 'break',
+      title: 'Protected recovery break',
+      action: `You've studied for ${metrics.studyHours} hours. Block the next 30 minutes for a no-screen break, water, and a short walk.`,
+      duration: '30 min',
+      priority: 'high',
+    });
+  }
+
+  if (metrics.sleepHours < 6) {
+    interventions.push({
+      type: 'sleep',
+      title: 'Sleep recovery tonight',
+      action: 'Stop heavy study 1 hour earlier tonight and target at least 7.5 hours of sleep.',
+      duration: 'Tonight',
+      priority: 'high',
+    });
+  }
+
+  if (metrics.deadlinePressure >= 7 || metrics.academicLoad >= 7) {
+    interventions.push({
+      type: 'load',
+      title: 'Reduce cognitive overload',
+      action: 'Convert today into a top-3 task list and defer low-impact tasks until tomorrow.',
+      duration: '10 min planning',
+      priority: 'medium',
+    });
+  }
+
+  if (metrics.exerciseTime < 2) {
+    interventions.push({
+      type: 'movement',
+      title: 'Stress reset movement',
+      action: 'Schedule 20 minutes of light movement today to reduce stress and restore focus.',
+      duration: '20 min',
+      priority: 'medium',
+    });
+  }
+
+  if (metrics.socialTime < 1) {
+    interventions.push({
+      type: 'connection',
+      title: 'Accountability check-in',
+      action: 'Message one friend, mentor, or teammate today and tell them your main goal for the next 24 hours.',
+      duration: '5 min',
+      priority: 'medium',
+    });
+  }
+
+  accountabilityPrompts.push(
+    score >= 60
+      ? 'Commit to one recovery action in the next hour and one academic priority for tomorrow.'
+      : 'Pick one focused study block and one recovery habit to complete today.'
+  );
+
+  if (level === 'Critical' || level === 'High') {
+    accountabilityPrompts.push('If this pattern continues for a week, reach out to a counselor, mentor, or trusted faculty member.');
+  }
+
+  return {
+    headline:
+      level === 'Critical'
+        ? 'High-risk burnout pattern detected — recovery needs to happen before more output.'
+        : level === 'High'
+          ? 'You are pushing past a healthy study rhythm — act early to prevent escalation.'
+          : 'Your routine is still recoverable with a few targeted adjustments.',
+    interventions: interventions.slice(0, 4),
+    accountabilityPrompts,
+  };
+}
+
+function sanitizeBurnoutMetrics(payload = {}) {
+  const clamp = (value, min, max, fallback) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.min(max, Math.max(min, num));
+  };
+
+  return {
+    studyHours: clamp(payload.studyHours, 0, 14, 4),
+    sleepHours: clamp(payload.sleepHours, 0, 12, 7),
+    deadlinePressure: clamp(payload.deadlinePressure, 0, 10, 5),
+    academicLoad: clamp(payload.academicLoad, 0, 10, 5),
+    exerciseTime: clamp(payload.exerciseTime, 0, 7, 3),
+    socialTime: clamp(payload.socialTime, 0, 8, 3),
+  };
+}
+
+async function saveBurnoutMetricsForUser(userId, payload = {}) {
+  const oid = new mongoose.Types.ObjectId(userId);
+  const metrics = sanitizeBurnoutMetrics(payload);
+
+  const profile = await StudentProfile.findOneAndUpdate(
+    { userId: oid },
+    {
+      $set: { burnoutMetrics: metrics },
+      $setOnInsert: { userId: oid },
+    },
+    {
+      upsert: true,
+      new: true,
+      runValidators: true,
+      setDefaultsOnInsert: true,
+    }
+  );
+
+  return { profile, metrics };
+}
 
 router.get('/', auth, async (req, res) => {
   try {
     const userId = req.user.id;
     
     // Try to get saved metrics first
-    const profile = await StudentProfile.findOne({ userId: mongoose.Types.ObjectId(userId) });
+    const profile = await StudentProfile.findOne({ userId: new mongoose.Types.ObjectId(userId) });
     let metrics = profile?.burnoutMetrics;
     
     if (!metrics) {
@@ -20,7 +236,7 @@ router.get('/', auth, async (req, res) => {
       const avgResult = await StudySession.aggregate([
         {
           $match: {
-            userId: mongoose.Types.ObjectId(userId),
+            userId: new mongoose.Types.ObjectId(userId),
             startTime: { $gte: thirtyDaysAgo }
           }
         },
@@ -77,19 +293,13 @@ router.get('/', auth, async (req, res) => {
 
 router.post('/save-metrics', auth, async (req, res) => {
   try {
-    console.log('Save metrics called, user:', req.user.id, 'body:', req.body);
-    
-    const userId = mongoose.Types.ObjectId(req.user.id);
-    const metrics = req.body;
-    
-    const profile = await StudentProfile.findOneAndUpdate(
-      { userId },
-      { $set: { burnoutMetrics: metrics } },
-      { upsert: true, new: true }
-    );
-    
-    console.log('Profile saved:', profile._id, 'metrics:', profile.burnoutMetrics);
-    res.json({ success: true, message: 'Metrics saved successfully' });
+    const { profile, metrics } = await saveBurnoutMetricsForUser(req.user.id, req.body);
+    res.json({
+      success: true,
+      message: 'Metrics saved successfully',
+      burnoutMetrics: profile.burnoutMetrics || metrics,
+      updatedAt: profile.updatedAt,
+    });
   } catch (err) {
     console.error('Save metrics error:', err);
     res.status(500).json({ message: 'Error saving metrics', error: err.message });
@@ -99,7 +309,21 @@ router.post('/save-metrics', auth, async (req, res) => {
 // Enhanced dynamic suggestions in predict
 router.post('/predict', auth, async (req, res) => {
   try {
-    const { studyHours, sleepHours, socialTime, exerciseTime, deadlinePressure, academicLoad } = req.body;
+    const { studyHours, sleepHours, socialTime, exerciseTime, deadlinePressure, academicLoad } = sanitizeBurnoutMetrics(req.body);
+    const userId = req.user.id;
+    const { profile } = await saveBurnoutMetricsForUser(userId, {
+      studyHours,
+      sleepHours,
+      socialTime,
+      exerciseTime,
+      deadlinePressure,
+      academicLoad,
+    });
+    const targetRole = profile?.targetRole || profile?.customRole || profile?.goals?.[0]?.goal || null;
+    const userSkills = [
+      ...(profile?.extractedSkills || []),
+      ...(profile?.extraSkills || []),
+    ];
     
     // Try ML API first
     try {
@@ -128,8 +352,38 @@ router.post('/predict', auth, async (req, res) => {
         'Critical': ['Immediate 2-day reset. Professional help if persists.']
       };
       suggestions = [...suggestions.slice(0,2), ...levelSuggestions[level] || []];
+
+      let readiness = null;
+      if (targetRole) {
+        try {
+          const skillGap = await mlService.getSkillGap(userSkills, targetRole);
+          const readinessScore = Math.max(0, Math.min(100, Math.round(skillGap?.match_score || 0)));
+          readiness = {
+            ...getRoleRecalibrationSuggestions(targetRole, readinessScore, skillGap?.missing_skills || []),
+            matchedSkills: skillGap?.matched_skills || [],
+            missingSkills: skillGap?.missing_skills || [],
+          };
+        } catch (e) {
+          readiness = getRoleRecalibrationSuggestions(targetRole, 0, []);
+        }
+      } else {
+        readiness = getRoleRecalibrationSuggestions(null, 0, []);
+      }
+
+      const coach = buildInterventionPlan({ studyHours, sleepHours, socialTime, exerciseTime, deadlinePressure, academicLoad }, level, score);
+
+      if (profile) {
+        profile.burnoutCoach = profile.burnoutCoach || {};
+        profile.burnoutCoach.lastRisk = {
+          score,
+          level,
+          confidence,
+          predictedAt: new Date(),
+        };
+        await profile.save();
+      }
       
-      return res.json({ score, level, suggestions, confidence, source: 'ML' });
+      return res.json({ score, level, suggestions, confidence, source: 'ML', coach, readiness });
     } catch (mlErr) {
       console.log('ML unavailable, rule-based');
     }
@@ -158,8 +412,38 @@ router.post('/predict', auth, async (req, res) => {
       Critical: ['48h reset protocol. Prof help.']
     };
     suggestions = [...suggestions.slice(0,3), ...(levelSugs[level] || [])];
+
+    let readiness = null;
+    if (targetRole) {
+      try {
+        const skillGap = await mlService.getSkillGap(userSkills, targetRole);
+        const readinessScore = Math.max(0, Math.min(100, Math.round(skillGap?.match_score || 0)));
+        readiness = {
+          ...getRoleRecalibrationSuggestions(targetRole, readinessScore, skillGap?.missing_skills || []),
+          matchedSkills: skillGap?.matched_skills || [],
+          missingSkills: skillGap?.missing_skills || [],
+        };
+      } catch (e) {
+        readiness = getRoleRecalibrationSuggestions(targetRole, 0, []);
+      }
+    } else {
+      readiness = getRoleRecalibrationSuggestions(null, 0, []);
+    }
+
+    const coach = buildInterventionPlan({ studyHours, sleepHours, socialTime, exerciseTime, deadlinePressure, academicLoad }, level, score);
+
+    if (profile) {
+      profile.burnoutCoach = profile.burnoutCoach || {};
+      profile.burnoutCoach.lastRisk = {
+        score,
+        level,
+        confidence: null,
+        predictedAt: new Date(),
+      };
+      await profile.save();
+    }
     
-    res.json({ score, level, suggestions });
+    res.json({ score, level, suggestions, coach, readiness, source: 'rule-based' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
@@ -178,7 +462,7 @@ function _mkCoachIntro() {
 }
 
 async function _getOrCreateProfile(userId) {
-  const oid = mongoose.Types.ObjectId(userId);
+  const oid = new mongoose.Types.ObjectId(userId);
   let profile = await StudentProfile.findOne({ userId: oid });
   if (!profile) {
     profile = await StudentProfile.create({ userId: oid });
@@ -296,6 +580,9 @@ router.post('/coach/message', auth, async (req, res) => {
 });
 
 module.exports = router;
+
+
+
 
 
 
