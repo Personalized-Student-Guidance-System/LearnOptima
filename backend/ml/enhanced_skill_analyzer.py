@@ -9,40 +9,27 @@ from sklearn.metrics.pairwise import cosine_similarity
 from typing import List, Dict
 import json
 
-# Role requirements with skill importance scoring (0-100)
-ROLE_SKILLS_IMPORTANCE = {
-    'Software Engineer': {
-        'javascript': 95, 'python': 90, 'data structures': 98, 'algorithms': 97,
-        'git': 85, 'sql': 85, 'system design': 90, 'react': 80, 'nodejs': 80,
-        'rest api': 85, 'testing': 70, 'docker': 75
-    },
-    'Data Scientist': {
-        'python': 98, 'machine learning': 95, 'statistics': 90, 'sql': 85,
-        'tensorflow': 85, 'pandas': 88, 'numpy': 88, 'visualization': 75,
-        'scikitlearn': 85, 'jupyter notebooks': 70
-    },
-    'DevOps Engineer': {
-        'docker': 95, 'kubernetes': 95, 'cicd': 90, 'linux': 98, 'aws': 90,
-        'terraform': 85, 'monitoring': 80, 'bash': 90, 'jenkins': 75,
-        'git': 85, 'networking': 70
-    },
-    'Frontend Developer': {
-        'react': 95, 'javascript': 98, 'css': 95, 'html': 95, 'typescript': 85,
-        'figma': 70, 'webpack': 70, 'redux': 75, 'rest api': 75, 'testing': 70
-    },
-    'ML Engineer': {
-        'python': 98, 'deep learning': 95, 'tensorflow': 95, 'pytorch': 90,
-        'statistics': 85, 'mathematics': 90, 'computer vision': 80,
-        'nlp': 80, 'data processing': 85, 'sql': 75
-    },
-    'Backend Developer': {
-        'nodejs': 95, 'python': 90, 'sql': 95, 'rest api': 98,
-        'microservices': 85, 'docker': 80, 'redis': 75, 'postgresql': 80,
-        'authentication': 80, 'testing': 75
-    }
-}
+# Dynamic TF-IDF matching via FastScraper replaces hardcoded importance maps.
+from fast_scraper import FastJobScraper
 
-# Skill prerequisites - skills that should be learned before others
+def get_dynamic_role_requirements(target_role: str) -> Dict[str, int]:
+    """Uses the job scraper to generate skill importance dynamically."""
+    scraper = FastJobScraper()
+    skills = scraper.scrape_job_skills(target_role, num_jobs=5)
+    
+    if not skills:
+        from fast_scraper import _domain
+        skills = _domain(target_role)
+    
+    # Assign importance descending: 100 down to 50 based on rank
+    requirements = {}
+    total = len(skills)
+    for i, skill in enumerate(skills):
+        importance = int(100 - (i / max(total, 1)) * 50)
+        requirements[skill.lower()] = importance
+    return requirements
+
+# Skill prerequisites - high-level map, fallback empty for unknown skills
 SKILL_PREREQUISITES = {
     'react': ['javascript', 'html', 'css'],
     'nodejs': ['javascript', 'databases'],
@@ -55,22 +42,21 @@ SKILL_PREREQUISITES = {
     'pytorch': ['python', 'machine learning'],
 }
 
-# Job market demand weight (how often skill appears in job descriptions) - 0-100
-JOB_MARKET_DEMAND = {
-    'python': 98, 'javascript': 96, 'react': 92, 'nodejs': 88,
-    'sql': 94, 'docker': 85, 'kubernetes': 75, 'aws': 92,
-    'git': 95, 'rest api': 90, 'testing': 80, 'system design': 85,
-    'data structures': 98, 'algorithms': 95
-}
+def get_dynamic_time(skill: str) -> int:
+    """Heuristic default time based on string length and hashing context to be consistent but generic"""
+    skill_lower = skill.lower()
+    if any(x in skill_lower for x in ['machine learning', 'deep learning', 'architect', 'quantum']):
+        return 90
+    if any(x in skill_lower for x in ['algorithm', 'system design', 'framework', 'kubernetes', 'tensorflow']):
+        return 60
+    if any(x in skill_lower for x in ['javascript', 'python', 'react', 'nodejs', 'java', 'c++']):
+        return 40
+    if any(x in skill_lower for x in ['sql', 'html', 'css', 'docker', 'git', 'api']):
+        return 20
+    return 30
 
-# Time to proficiency (days of study)
-TIME_TO_PROFICIENCY = {
-    'javascript': 30, 'python': 35, 'react': 40, 'nodejs': 35,
-    'sql': 20, 'docker': 25, 'kubernetes': 45, 'git': 10,
-    'rest api': 20, 'testing': 25, 'data structures': 45,
-    'algorithms': 60, 'system design': 60, 'machine learning': 90,
-    'deep learning': 120, 'tensorflow': 50, 'pytorch': 50
-}
+
+
 
 def normalize_skill(skill: str) -> str:
     """Normalize skill name for comparison"""
@@ -89,7 +75,11 @@ def calculate_skill_gap(user_skills: List[str], target_role: str, weights: Dict 
         Detailed gap analysis
     """
     user_lower = [normalize_skill(s) for s in user_skills]
-    required = ROLE_SKILLS_IMPORTANCE.get(target_role, ROLE_SKILLS_IMPORTANCE['Software Engineer'])
+    
+    if weights is None:
+        required = get_dynamic_role_requirements(target_role)
+    else:
+        required = weights
     
     # Exact matching
     matched = []
@@ -149,9 +139,9 @@ def prioritize_missing_skills(missing_skills: List[Dict], user_skills: List[str]
         prereqs = SKILL_PREREQUISITES.get(skill, [])
         prereqs_met = sum(1 for p in prereqs if p in user_lower) / max(len(prereqs), 1)
         
-        # Get demand and time
-        demand = JOB_MARKET_DEMAND.get(skill, 60)
-        time = TIME_TO_PROFICIENCY.get(skill, 30)
+        # Get dynamic demand & heuristic time
+        demand = importance # We tie market demand directly to scraped frequency importance dynamically
+        time = get_dynamic_time(skill)
         
         # ML Priority Score (0-100)
         # - Importance: 40%

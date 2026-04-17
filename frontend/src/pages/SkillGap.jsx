@@ -17,17 +17,7 @@ export default function SkillGap() {
   const [expandedGaps, setExpandedGaps] = useState(false);
   const [newSkill, setNewSkill] = useState('');
   const [selectedRole, setSelectedRole] = useState(null);
-  const [availableRoles] = useState([
-    'Software Engineer',
-    'Data Scientist',
-    'Product Manager',
-    'Frontend Developer',
-    'Backend Developer',
-    'DevOps Engineer',
-    'ML Engineer',
-    'Full Stack Developer',
-    'UI/UX Designer'
-  ]);
+  const [customRoleInput, setCustomRoleInput] = useState('');
 
   // Initialize and sync selectedRole with user's targetRole
   useEffect(() => {
@@ -141,29 +131,40 @@ export default function SkillGap() {
         
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 280 }}>
           <label style={{ fontSize: 11, fontWeight: 600, color: G.text, whiteSpace: 'nowrap' }}>Target Role:</label>
-          <select 
-            value={selectedRole}
-            onChange={(e) => {
-              console.log('[SkillGap] Role changed to:', e.target.value);
-              setSelectedRole(e.target.value);
-            }}
-            style={{
-              flex: 1,
-              padding: '6px 10px',
-              fontSize: 12,
-              borderRadius: 6,
-              border: `1px solid ${G.border}`,
-              background: G.bg,
-              color: G.text,
-              fontWeight: 500,
-              cursor: 'pointer',
-              outline: 'none'
-            }}
-          >
-            {availableRoles.map(role => (
-              <option key={role} value={role}>{role}</option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', gap: 8, width: 280 }}>
+            <input 
+              type="text"
+              value={customRoleInput || selectedRole}
+              onChange={(e) => setCustomRoleInput(e.target.value)}
+              placeholder="e.g. Quantum Engineer"
+              onKeyDown={(e) => {
+                 if (e.key === 'Enter' && customRoleInput.trim()) {
+                    setSelectedRole(customRoleInput.trim());
+                 }
+              }}
+              style={{
+                flex: 1,
+                padding: '6px 10px',
+                fontSize: 12,
+                borderRadius: 6,
+                border: `1px solid ${G.border}`,
+                background: G.bg,
+                color: G.text,
+                fontWeight: 500,
+                outline: 'none'
+              }}
+            />
+            <button 
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                 if (customRoleInput.trim()) {
+                    setSelectedRole(customRoleInput.trim());
+                 }
+              }}
+            >
+              Analyze
+            </button>
+          </div>
         </div>
       </div>
 

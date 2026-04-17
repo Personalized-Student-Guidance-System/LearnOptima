@@ -1,13 +1,12 @@
-# BurnoutPredictor.jsx Syntax Fixes - COMPLETED ✅
+# OCR Gradesheet Extraction Fix - UPDATED ✅
 
-## Plan Steps:
-- [x] 1. Create TODO.md with steps
-- [x] 2. Edit frontend/src/pages/BurnoutPredictor.jsx to fix syntax errors (sliders map, saveMetrics func, buttons) - Sliders now properly mapped, saveMetrics function defined inside component, buttons structured correctly.
-- [x] 3. Test in dev server: cd frontend && npm run dev, check BurnoutPredictor page for no console errors
-- [x] 4. Update TODO.md with completion
-- [x] 5. Attempt task completion
+## Completed Steps:
+- [x] 1. Created TODO.md
+- [x] 2. Edited LearnOptima/backend/ml/ocr_parser.py: Added DEBUG prints (raw_text, lines, matches), robust 6-pattern line-by-line extraction (Name Grade Credits, Name Credits Grade, etc.), expanded grades (A-/B-/DIST/PASS), dedupe, max 12 subs, returns debug_lines + ocr_count
 
-All syntax errors fixed. Component now compiles without issues. Sliders render correctly, save/predict buttons functional.
 
-To test: `cd frontend && npm run dev` then navigate to the Burnout Predictor page.
+- [ ] 4. Start backend if needed: `cd LearnOptima/backend && npm start`
+- [ ] 5. Frontend test: `cd LearnOptima/frontend && npm run dev`, login → Academics → Upload clear gradesheet image
+- [ ] 6. Verify extraction works (check ML console DEBUG MATCH lines)
 
+Next: Run step 3-5 commands. Upload image to test - should now extract even if format varies.

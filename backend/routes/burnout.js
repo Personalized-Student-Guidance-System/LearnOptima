@@ -5,7 +5,7 @@ const StudySession = require('../models/StudySession');
 const StudentProfile = require('../models/StudentProfile');
 const mongoose = require('mongoose');
 
-router.get('/burnout', auth, async (req, res) => {
+router.get('/', auth, async (req, res) => {
   try {
     const userId = req.user.id;
     

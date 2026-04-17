@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const ML_BASE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
+const ML_BASE_URL = process.env.ML_SERVICE_URL || 'http://localhost:5001';
 
 async function parseResume(resumeUrl) {
   try {
@@ -51,4 +51,19 @@ async function getSkillGap(studentSkills, careerGoal) {
   }
 }
 
-module.exports = { parseResume, extractTimetable, getSkillGap };
+async function extractGradesheet(base64Image) {
+  try {
+    const { data } = await axios.post(`${ML_BASE_URL}/extract-gradesheet`, { image: base64Image }, {
+      timeout: 120000,  // 2 minutes — CPU OCR is slow
+      maxBodyLength: 50 * 1024 * 1024,  // 50MB for large base64 images
+      maxContentLength: 50 * 1024 * 1024,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return data;
+  } catch (err) {
+    console.error('ML extract-gradesheet error:', err.message);
+    return { success: false, error: err.message, subjects: [] };
+  }
+}
+
+module.exports = { parseResume, extractTimetable, getSkillGap, extractGradesheet };

@@ -19,10 +19,17 @@ export default function Planner() {
   const [showAI,     setShowAI]     = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [form, setForm] = useState({ title: '', date: '', startTime: '', endTime: '', category: 'study', priority: 'medium', description: '' });
-  const [aiForm, setAiForm] = useState({ subjects: '', examDate: '', hoursPerDay: 4 });
-  const [saving, setSaving] = useState(false);
+  const [profileRoles, setProfileRoles] = useState([]);
+  const [syncRole, setSyncRole] = useState('');
 
-  useEffect(() => { fetchTasks(); }, [currentDate]);
+  useEffect(() => { 
+    fetchTasks(); 
+    axios.get('/profile').then(res => {
+      const roles = res.data?.targetRoles || (res.data?.targetRole ? [res.data.targetRole] : []);
+      setProfileRoles(roles);
+      if (roles.length > 0) setSyncRole(roles[0]);
+    }).catch(()=>{});
+  }, [currentDate]);
 
   const fetchTasks = async () => {
     try {
@@ -55,15 +62,17 @@ export default function Planner() {
   };
 
   const generateAI = async () => {
+    if (!syncRole) return alert('Please define a Target Role in your Profile first.');
     setGenerating(true);
     try {
-      await axios.post('/planner/ai-generate', {
-        subjects: aiForm.subjects.split(',').map(s => s.trim()),
-        examDate: aiForm.examDate,
-        hoursPerDay: Number(aiForm.hoursPerDay)
-      });
-      setShowAI(false); fetchTasks();
-    } catch {} finally { setGenerating(false); }
+      await axios.post('/planner/sync-roadmap', { role: syncRole });
+      setShowAI(false); 
+      fetchTasks();
+    } catch (err) { 
+        alert('Failed to generate. Please ensure you have visited the Career Roadmap page at least once to cache the AI pipeline for this role.'); 
+    } finally { 
+        setGenerating(false); 
+    }
   };
 
   const getWeekDays = () => {
@@ -243,20 +252,20 @@ export default function Planner() {
       {showAI && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div className="card card-lg" style={{ width: 440, animation: 'fadeSlideUp 0.2s ease' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>🤖 AI Study Plan Generator</div>
-            <div style={{ fontSize: 12, color: G.text2, marginBottom: 20 }}>Generate an optimized study schedule based on your subjects and exam date</div>
-            <div style={{ marginBottom: 12 }}><label className="field-label">Subjects (comma-separated)</label><input className="input" value={aiForm.subjects} onChange={e => setAiForm({...aiForm, subjects: e.target.value})} placeholder="Math, Physics, Chemistry" /></div>
-            <div style={{ marginBottom: 12 }}><label className="field-label">Exam Date</label><input className="input" type="date" value={aiForm.examDate} onChange={e => setAiForm({...aiForm, examDate: e.target.value})} /></div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>🤖 AI Career Planner Sync</div>
+            <div style={{ fontSize: 12, color: G.text2, marginBottom: 20 }}>Dynamically schedule your AI Career Roadmap phases across your daily calendar. Our Burnout Predictor actively throttles daily tasks if the load becomes unsafe.</div>
+            
             <div style={{ marginBottom: 20 }}>
-              <label className="field-label">Hours Per Day: {aiForm.hoursPerDay}</label>
-              <div style={{ position: 'relative', height: 4, borderRadius: 99, background: G.bg2, overflow: 'hidden', marginBottom: 4 }}>
-                <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: 99, background: G.blue, width: `${(aiForm.hoursPerDay / 12) * 100}%`, transition: 'width 0.2s' }} />
-              </div>
-              <input type="range" min={1} max={12} value={aiForm.hoursPerDay} onChange={e => setAiForm({...aiForm, hoursPerDay: Number(e.target.value)})} style={{ width: '100%', accentColor: G.blue, cursor: 'pointer', marginTop: -8 }} />
+              <label className="field-label">Select Target Role to Sync</label>
+              <select className="input" value={syncRole} onChange={e => setSyncRole(e.target.value)}>
+                {profileRoles.length === 0 ? <option value="">No roles found in profile</option> : null}
+                {profileRoles.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
             </div>
+            
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowAI(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={generateAI} disabled={generating}>{generating ? <><Spinner /> Generating…</> : '🚀 Generate Plan'}</button>
+              <button className="btn btn-primary" onClick={generateAI} disabled={generating || profileRoles.length === 0}>{generating ? <><Spinner /> Syncing…</> : '🚀 Sync Auto-Schedule'}</button>
             </div>
           </div>
         </div>

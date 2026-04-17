@@ -43,4 +43,15 @@ router.post('/skill-gap', async (req, res) => {
   }
 });
 
+router.post('/extract-gradesheet', async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) return res.status(400).json({ message: 'image required' });
+    const data = await mlService.extractGradesheet(image);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;

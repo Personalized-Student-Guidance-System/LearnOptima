@@ -50,16 +50,12 @@ router.get('/analyze', auth, async (req, res) => {
     const queryRole = req.query.role;
     console.log(`[Skills] Analyze request - userId: ${userId}, queryRole: ${queryRole}`);
     
-    // Get user profile and user data
     const profile = await StudentProfile.findOne({ userId });
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found' });
     
-    // Determine target role: query param > profile > user > default
     let targetRole = queryRole || profile?.targetRole || user.targetRole || 'Software Engineer';
-    console.log(`[Skills] Determined targetRole: ${targetRole} (query: ${queryRole}, profile: ${profile?.targetRole}, user: ${user.targetRole})`);
     
-    // Combine all user skills (from profile and user model)
     const allSkills = [
       ...(profile?.extractedSkills || []),
       ...(profile?.extraSkills || []),
@@ -67,51 +63,29 @@ router.get('/analyze', auth, async (req, res) => {
       ...((req.query.skills || '').split(',').filter(s => s.trim()))
     ];
     
-    // Get required skills for target role
-    const required = roleSkillMap[targetRole] || roleSkillMap['Software Engineer'];
-    
-    // Calculate matched and missing skills
-    const matched = required.filter(s => 
-      allSkills.some(u => u.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(u.toLowerCase()))
-    );
-    const missing = required.filter(s => 
-      !allSkills.some(u => u.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(u.toLowerCase()))
-    );
-    
-    const matchScore = Math.round((matched.length / required.length) * 100);
-    
-    // Prioritize missing skills based on importance and market demand
-    const prioritized = missing.map((s, i) => ({
-      skill: s,
-      importance: 100 - (i * 10),
-      demand: 85,
-      priority_score: 90 - (i * 8),
-      interview_frequency: i === 0 ? 95 : i < 2 ? 85 : i < 4 ? 70 : 60,
-      urgency: i === 0 ? 'Critical' : i < 2 ? 'High' : 'Medium',
-      time_to_proficiency_days: 20 + (i * 5),
-      prerequisites: []
-    }));
-    
-    res.json({
-      overview: {
-        match_score: matchScore,
-        matched_count: matched.length,
-        missing_count: missing.length,
-        total_required: required.length,
-        analysis: matchScore >= 70 ? `Excellent! You have ${matched.length}/${required.length} skills. Focus on specialization.` 
-                 : matchScore >= 50 ? `Good progress! You have ${matched.length}/${required.length} skills. ${missing.length} more to master.`
-                 : `Build your foundation. Prioritize ${Math.min(3, missing.length)} critical skills.`
-      },
-      matched_skills: matched.map(s => ({ skill: s, importance: 80 })),
-      missing_skills: prioritized,
-      top_5_priorities: prioritized.slice(0, 5),
-      learning_queue: profile?.skillsToLearn || [],
-      role: targetRole,
-      userSkillsCount: allSkills.length,
-      college: profile?.college,
-      branch: profile?.branch,
-      semester: profile?.semester
-    });
+    // Call Python ML API Agent for true gap analysis
+    const axios = require('axios');
+    const ML_URL = process.env.ML_SERVICE_URL || 'http://localhost:5001';
+    try {
+       const mlRes = await axios.post(`${ML_URL}/skill-gap`, {
+          targetRole: targetRole.trim(),
+          skills: allSkills
+       }, { timeout: 90000 });
+       
+       const gapData = mlRes.data;
+       
+       // Pass the true ML data right to the frontend
+       return res.json({
+          ...gapData,
+          userSkillsCount: allSkills.length,
+          college: profile?.college,
+          branch: profile?.branch,
+          semester: profile?.semester
+       });
+    } catch(err) {
+       console.error('[Skills] ML Error for gap analysis:', err.message);
+       return res.status(500).json({ message: 'Failed to generate dynamic skill gap.' });
+    }
   } catch (err) {
     console.error('[Skills] Analyze error:', err.message);
     res.status(500).json({ message: err.message });
@@ -133,22 +107,25 @@ router.get('/learning-path', auth, async (req, res) => {
     
     const targetRole = req.query.role || profile?.targetRole || 'Software Engineer';
     
-    // Generate learning path
-    const learning_path = [
-      { order: 1, skill: 'Fundamentals', start_week: 1, duration_weeks: 4, urgency: 'Critical', prerequisites: [] },
-      { order: 2, skill: 'Core Concepts', start_week: 5, duration_weeks: 6, urgency: 'High', prerequisites: ['Fundamentals'] },
-      { order: 3, skill: 'Specialization', start_week: 11, duration_weeks: 8, urgency: 'Medium', prerequisites: ['Core Concepts'] },
-      { order: 4, skill: 'Advanced Topics', start_week: 19, duration_weeks: 8, urgency: 'Medium', prerequisites: ['Specialization'] }
-    ];
+    // Call Python ML API Agent to build dynamic path based on scraped job skill density
+    const axios = require('axios');
+    const ML_URL = process.env.ML_SERVICE_URL || 'http://localhost:5001';
     
-    res.json({
-      role: targetRole,
-      total_duration_weeks: 26,
-      learning_path,
-      estimated_completion_date: 'Week 26',
-      skills_count: allSkills.length,
-      skills_to_learn: profile?.skillsToLearn || []
-    });
+    try {
+        const mlRes = await axios.post(`${ML_URL}/learning-path`, {
+            targetRole: targetRole.trim(),
+            skills: allSkills
+        }, { timeout: 90000 });
+        
+        return res.json({
+            ...mlRes.data,
+            skills_count: allSkills.length,
+            skills_to_learn: profile?.skillsToLearn || []
+        });
+    } catch (err) {
+        console.error('[Skills] ML Error for learning path:', err.message);
+        return res.status(500).json({ message: 'Failed to generate dynamic learning path.' });
+    }
   } catch (err) {
     console.error('[Skills] Learning path error:', err.message);
     res.status(500).json({ message: err.message });

@@ -18,9 +18,8 @@ import os
 import re
 from typing import Dict, List, Optional
 
-import anthropic
-
 from web_scraper import JobScraper
+from web_resource_scraper import get_real_resources
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -210,70 +209,29 @@ STATIC_FALLBACK: Dict[str, List[str]] = {
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  AI fallback
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _ai_generate_skills_and_resources(role: str) -> Optional[Dict]:
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        print("[AI Fallback] ANTHROPIC_API_KEY not set, skipping.")
-        return None
-
-    client = anthropic.Anthropic(api_key=api_key)
-    prompt = f"""You are a senior technical career advisor.
-A user wants to become a "{role}".
-
-1. List the 8-10 most important TECHNICAL skills/tools for a "{role}" in 2024-2025.
-   Be domain-specific — e.g. for Quantum Engineer list Qiskit/Cirq, NOT generic Python/JS.
-
-2. For each skill, provide 3 REAL learning resources (beginner, intermediate, advanced).
-
-Respond ONLY as valid JSON, no markdown fences:
-{{
-  "skills": ["Skill1", ...],
-  "resources": {{
-    "Skill1": {{
-      "beginner":     [{{"title":"...","url":"https://..."}}],
-      "intermediate": [{{"title":"...","url":"https://..."}}],
-      "advanced":     [{{"title":"...","url":"https://..."}}]
-    }}
-  }}
-}}"""
-    try:
-        msg = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=2000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = msg.content[0].text.strip()
-        raw = re.sub(r"^```[a-z]*\n?", "", raw, flags=re.M)
-        raw = re.sub(r"\n?```$", "", raw, flags=re.M)
-        data = json.loads(raw)
-        print(f"[AI Fallback] Generated {len(data.get('skills',[]))} skills for '{role}'")
-        return data
-    except Exception as exc:
-        print(f"[AI Fallback] Failed: {exc}")
-        return None
+# AI fallback removed - fully dynamic web scraper only
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Resource lookup
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_tier_resources(skill: str, tier: str, ai_res: Optional[Dict] = None) -> List[Dict]:
+def _get_tier_resources(skill: str, tier: str, ai_res: Optional[Dict] = None, scrape_live: bool = True) -> List[Dict]:
     if skill in TIERED_RESOURCES and tier in TIERED_RESOURCES[skill]:
         return TIERED_RESOURCES[skill][tier][:3]
     for key in TIERED_RESOURCES:
         if skill.lower().startswith(key.lower()) or key.lower().startswith(skill.lower()):
             if tier in TIERED_RESOURCES[key]:
                 return TIERED_RESOURCES[key][tier][:3]
-    if ai_res and skill in ai_res and tier in ai_res[skill]:
-        return ai_res[skill][tier][:3]
+    
+    if scrape_live:
+        print(f"[ResourceScraper] Executing LIVE web search for: {skill} ({tier})...")
+        live_results = get_real_resources(skill, tier)
+        if live_results:
+            return live_results
+        
     return [
-        {"title": f"Learn {skill} ({tier}) – YouTube", "url": f"https://www.youtube.com/results?search_query=learn+{skill.replace(' ','+')}"},
-        {"title": f"{skill} – Udemy",                  "url": f"https://www.udemy.com/courses/search/?q={skill.replace(' ','+')}"},
-        {"title": f"{skill} – GeeksforGeeks",          "url": f"https://www.geeksforgeeks.org/search/?q={skill.replace(' ','+')}"},
+        {"title": f"Search YouTube: {skill} {tier}", "url": f"https://www.youtube.com/results?search_query=learn+{skill.replace(' ','+')}"}
     ]
 
 
@@ -285,8 +243,8 @@ def build_phases(skills: List[str], role: str, ai_resources: Optional[Dict] = No
     if not skills:
         return []
 
-    def R(s, t):
-        return _get_tier_resources(s, t, ai_resources)
+    def R(s, t, i):
+        return _get_tier_resources(s, t, ai_resources, scrape_live=(i < 1))
 
     half    = max(1, len(skills) // 2)
     first_h = skills[:half]
@@ -300,7 +258,7 @@ def build_phases(skills: List[str], role: str, ai_resources: Optional[Dict] = No
             "duration": "4–8 weeks",
             "description": f"Build the theoretical and practical base for {rc}. Core concepts, environment setup, first programs.",
             "tasks": first_h,
-            "resources": [{"skill": s, "tier": "beginner", "resources": R(s, "beginner")} for s in first_h],
+            "resources": [{"skill": s, "tier": "beginner", "resources": R(s, "beginner", i)} for i, s in enumerate(first_h)],
         },
         # [1] Elementary
         {
@@ -308,7 +266,7 @@ def build_phases(skills: List[str], role: str, ai_resources: Optional[Dict] = No
             "duration": "4–8 weeks",
             "description": f"Expand your {rc} toolkit. Apply foundational knowledge to realistic exercises.",
             "tasks": second_h,
-            "resources": [{"skill": s, "tier": "beginner", "resources": R(s, "beginner")} for s in second_h],
+            "resources": [{"skill": s, "tier": "beginner", "resources": R(s, "beginner", i)} for i, s in enumerate(second_h)],
         },
         # [2] Intermediate
         {
@@ -316,7 +274,7 @@ def build_phases(skills: List[str], role: str, ai_resources: Optional[Dict] = No
             "duration": "8–12 weeks",
             "description": f"Libraries, frameworks, and architectural patterns used by professional {rc}s.",
             "tasks": skills,
-            "resources": [{"skill": s, "tier": "intermediate", "resources": R(s, "intermediate")} for s in skills],
+            "resources": [{"skill": s, "tier": "intermediate", "resources": R(s, "intermediate", i)} for i, s in enumerate(skills)],
         },
         # [3] Advanced
         {
@@ -324,7 +282,7 @@ def build_phases(skills: List[str], role: str, ai_resources: Optional[Dict] = No
             "duration": "8–12 weeks",
             "description": f"Performance, scalability, research papers, and advanced architectures for {rc}.",
             "tasks": skills,
-            "resources": [{"skill": s, "tier": "advanced", "resources": R(s, "advanced")} for s in skills],
+            "resources": [{"skill": s, "tier": "advanced", "resources": R(s, "advanced", i)} for i, s in enumerate(skills)],
         },
         # [4] Expert
         {
@@ -407,32 +365,20 @@ class SkillResourcesScraper:
     def get_dynamic_role_resources(self, target_role: str, location: str = "India", num_jobs: int = 5) -> Dict:
         print(f"[Scraper] Starting pipeline for '{target_role}'…")
         extracted_skills = self.job_scraper.scrape_job_skills(target_role, location, num_jobs)
-        ai_resources: Optional[Dict] = None
 
         if len(extracted_skills) < 3:
-            print(f"[Scraper] Only {len(extracted_skills)} skills found — calling AI…")
-            ai_data = _ai_generate_skills_and_resources(target_role)
-            if ai_data:
-                extracted_skills = ai_data.get("skills", [])
-                ai_resources     = ai_data.get("resources", {})
-                for skill, tiers in ai_resources.items():
-                    if skill not in TIERED_RESOURCES:
-                        TIERED_RESOURCES[skill] = tiers
-            else:
-                key = target_role.lower().strip()
-                extracted_skills = (
-                    STATIC_FALLBACK.get(key)
-                    or STATIC_FALLBACK.get(key.replace(" ", ""))
-                    or ["Python", "SQL", "Docker"]
-                )
+            key = target_role.lower().strip()
+            # If our real job scraper fails, fallback to hardcoded domain basics, no LLMs.
+            from fast_scraper import _domain
+            extracted_skills = _domain(target_role)
 
-        phases = build_phases(extracted_skills, target_role, ai_resources)
+        phases = build_phases(extracted_skills, target_role, None)
         return {
             "role":             target_role,
             "location":         location,
             "extracted_skills": extracted_skills,
             "phases":           phases,
-            "source":           "live-scrape+ai" if ai_resources else "live-scrape",
+            "source":           "live-scrape",
         }
 
 

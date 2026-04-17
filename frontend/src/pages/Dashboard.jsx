@@ -61,7 +61,7 @@ export default function Dashboard() {
     }).catch(() => {});
     
     // Fetch roadmap progress
-    if (user?.targetRole) {
+    if (user?.targetRole && user?.checklistId) {
       axios.get(`/career/checklist/${user.checklistId}`).then(r => {
         const items = Object.values(r.data.items || {});
         const completed = items.filter(Boolean).length;

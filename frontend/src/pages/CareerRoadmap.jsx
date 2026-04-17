@@ -34,9 +34,32 @@ function useGlobalAnimations() {
 
 // ── Default roles (used when profile API hasn't returned yet) ─────────────────
 const DEFAULT_ROLES = [
-  'Software Engineer', 'Data Scientist', 'DevOps Engineer',
-  'Frontend Developer', 'Backend Developer', 'ML Engineer',
-  'Full Stack Developer', 'Product Manager',
+  // 💻 Technology
+  'Software Engineer', 'Frontend Developer', 'Backend Developer',
+  'Full Stack Developer', 'Mobile Developer', 'DevOps Engineer',
+  'Cloud Architect', 'Cybersecurity Engineer', 'Blockchain Developer',
+  'Embedded Systems Engineer',
+  // 🤖 Data & AI
+  'Data Scientist', 'ML Engineer', 'AI Research Scientist',
+  'Data Analyst', 'Data Engineer', 'NLP Engineer',
+  // 🏥 Healthcare & Medical
+  'Nurse', 'Doctor', 'Biomedical Engineer',
+  'Clinical Data Analyst', 'Public Health Specialist',
+  // 💼 Business & Management
+  'Product Manager', 'Business Analyst', 'Project Manager',
+  'Marketing Analyst', 'HR Manager', 'Operations Manager',
+  // 💰 Finance
+  'Investment Banker', 'Financial Analyst', 'Quant Analyst',
+  'Risk Manager', 'FinTech Developer',
+  // 🎨 Creative & Design
+  'UI/UX Designer', 'Graphic Designer', 'Game Developer',
+  'Content Strategist', 'Video Producer',
+  // 🏛️ Government & Civil Services
+  'UPSC Civil Services', 'Government Data Analyst',
+  'Policy Researcher',
+  // 🔬 Science & Research
+  'Research Scientist', 'Environmental Scientist',
+  'Mechanical Engineer', 'Electrical Engineer', 'Chemical Engineer',
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -51,6 +74,7 @@ export default function CareerRoadmap() {
   const [checked,         setChecked]         = useState({});
   const [saving,          setSaving]          = useState({});
   const [loading,         setLoading]         = useState(true);     // roadmap / initial
+  const [refreshing,      setRefreshing]      = useState(false);    // cache-clear + reload
   const [loadingRoles,    setLoadingRoles]    = useState(false);    // jobs panel
   const [jobRoles,        setJobRoles]        = useState([]);
 
@@ -61,8 +85,13 @@ export default function CareerRoadmap() {
       try {
         const res = await axios.get('/profile');
         setUserProfile(res.data);
-        if (res.data?.availableRoles?.length) setAvailableRoles(res.data.availableRoles);
-        if (res.data?.targetRole) setRole(res.data.targetRole);
+        if (res.data?.targetRoles?.length) {
+          setAvailableRoles(res.data.targetRoles);
+          if (!role) setRole(res.data.targetRoles[0]);
+        } else if (res.data?.targetRole) {
+          setAvailableRoles([res.data.targetRole]);
+          if (!role) setRole(res.data.targetRole);
+        }
       } catch (err) {
         console.error('Failed to load profile:', err);
       } finally {
@@ -133,15 +162,38 @@ export default function CareerRoadmap() {
       .catch((err) => console.error('Save role error:', err.response?.data || err.message));
   }, []);
 
+  // ── Refresh roadmap (clears DB cache then re-fetches) ──────────────────────
+  const handleRefreshRoadmap = useCallback(async () => {
+    if (!role || refreshing) return;
+    setRefreshing(true);
+    setData(null);
+    try {
+      await axios.delete(`/career/cache?role=${encodeURIComponent(role)}`);
+    } catch (e) {
+      console.warn('Cache clear failed (non-fatal):', e.message);
+    }
+    await fetchRoadmap(role);
+    setRefreshing(false);
+  }, [role, refreshing, fetchRoadmap]);
+
   // ── Derived values ─────────────────────────────────────────────────────────
   // Support both old `semesters` key and new `phases` key from backend
   const phases    = data?.roadmap?.phases || data?.roadmap?.semesters || data?.phases || [];
   const allItems  = phases.flatMap((p) => p.tasks || []);
   const doneCount = Object.values(checked).filter(Boolean).length;
 
-  const roles = data?.availableRoles?.length
-    ? data.availableRoles
-    : availableRoles;
+  // Always merge user-saved roles with the full default list so the switcher
+  // is never empty. User's own roles always appear first.
+  const profileRoles = userProfile?.targetRoles?.length > 0
+    ? userProfile.targetRoles
+    : userProfile?.targetRole
+      ? [userProfile.targetRole]
+      : [];
+
+  // Deduplicate: user roles first, then all defaults (case-insensitive)
+  const seenNorm = new Set(profileRoles.map(r => r.toLowerCase().trim()));
+  const extras   = DEFAULT_ROLES.filter(r => !seenNorm.has(r.toLowerCase().trim()));
+  const roles    = [...profileRoles, ...extras];
 
   // ─────────────────────────────────────────────────────────────────────────
   //  RENDER
@@ -152,12 +204,13 @@ export default function CareerRoadmap() {
     return (
       <div className="page-enter" style={{ padding: '24px 28px', maxWidth: 900 }}>
         <div style={{ marginBottom: 32 }}>
-          <div style={{ height: 28, width: 300, background: G.border2, borderRadius: 4, marginBottom: 8,
+          <div style={{ height: 28, width: 300, borderRadius: 4, marginBottom: 8,
             background: 'linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%)',
             backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
-          <div style={{ height: 16, width: 400, background: G.border2, borderRadius: 4,
+          <div style={{ height: 16, width: 400, borderRadius: 4,
             background: 'linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%)',
             backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
+          <div style={{ marginTop: 12, fontSize: 12, color: G.text3 }}>Getting things ready...</div>
         </div>
         <SkeletonRoleSelector count={8} />
       </div>
@@ -179,19 +232,30 @@ export default function CareerRoadmap() {
         display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
       }}>
         <div>
-          <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>Career Roadmap</h1>
+          <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>🗺️ Career Roadmap</h1>
           <p style={{ fontSize: 12, color: G.text2, marginTop: 2 }}>
             Your personalized path to become a <strong>{role}</strong>
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={() => setRole(null)}
-          style={{ marginTop: 2 }}
-        >
-          Change Role
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleRefreshRoadmap}
+            disabled={refreshing || loading}
+            title="Clear cached roadmap and regenerate"
+            style={{ opacity: (refreshing || loading) ? 0.6 : 1 }}
+          >
+            {refreshing ? '⟳ Refreshing…' : '⟳ Refresh'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setRole(null)}
+          >
+            Change Role
+          </button>
+        </div>
       </div>
 
       {/* ── Live jobs – now a collapsible dropdown ── */}
@@ -205,7 +269,13 @@ export default function CareerRoadmap() {
 
       {/* ── Roadmap phases ── */}
       {loading ? (
-        <SkeletonPhaseCard count={6} />
+        <div style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: G.blueBg, color: G.blue, borderRadius: 8, fontSize: 12, border: `1px solid ${G.blueBd}` }}>
+                <span className="spinner" style={{ width: 14, height: 14, border: '2px solid', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                🤖 Checking DB cache or AI Generating Custom Pipeline (This may take 10-20 seconds for unseen roles)...
+            </div>
+            <SkeletonPhaseCard count={6} />
+        </div>
       ) : phases.length === 0 ? (
         <EmptyRoadmap role={role} onRetry={() => fetchRoadmap(role)} data={data} />
       ) : (
