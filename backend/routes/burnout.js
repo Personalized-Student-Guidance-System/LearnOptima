@@ -10,7 +10,7 @@ router.get('/', auth, async (req, res) => {
     const userId = req.user.id;
     
     // Try to get saved metrics first
-    let metrics = await StudentProfile.findOne({ userId: mongoose.Types.ObjectId(userId) }).then(p => p?.burnoutMetrics);
+    let metrics = await StudentProfile.findOne({ userId: new mongoose.Types.ObjectId(userId) }).then(p => p?.burnoutMetrics);
     
     if (!metrics) {
       // Fallback to study session average
@@ -18,7 +18,7 @@ router.get('/', auth, async (req, res) => {
       const avgResult = await StudySession.aggregate([
         {
           $match: {
-            userId: mongoose.Types.ObjectId(userId),
+            userId: new mongoose.Types.ObjectId(userId),
             startTime: { $gte: thirtyDaysAgo }
           }
         },
@@ -71,7 +71,7 @@ router.post('/save-metrics', auth, async (req, res) => {
   try {
     console.log('Save metrics called, user:', req.user.id, 'body:', req.body);
     
-    const userId = mongoose.Types.ObjectId(req.user.id);
+    const userId = new mongoose.Types.ObjectId(req.user.id);
     const metrics = req.body;
     
     const profile = await StudentProfile.findOneAndUpdate(
