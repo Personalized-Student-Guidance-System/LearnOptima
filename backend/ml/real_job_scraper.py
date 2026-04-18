@@ -63,6 +63,7 @@ class RealJobScraper:
         opts.add_experimental_option("useAutomationExtension", False)
         service = webdriver.chrome.service.Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=opts)
+        self.driver.set_page_load_timeout(15)
         # Hide webdriver flag from JS
         self.driver.execute_cdp_cmd(
             "Page.addScriptToEvaluateOnNewDocument",

@@ -9,35 +9,35 @@ import { G, ICONS } from '../design/tokens';
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [tasks,        setTasks]        = useState([]);
-  const [goals,        setGoals]        = useState([]);
-  const [cgpa,         setCgpa]         = useState(null);
-  const [profile,      setProfile]      = useState(null);
-  const [skills,       setSkills]       = useState([]);
-  const [burnoutRisk,  setBurnoutRisk]  = useState(null);
-  const [roadmapPct,   setRoadmapPct]   = useState(0);
-  const [skillGaps,    setSkillGaps]    = useState(0);
-  const [studyStats,   setStudyStats]   = useState(null);
-  const [anim,         setAnim]         = useState(false);
+  const [tasks, setTasks] = useState([]);
+  const [goals, setGoals] = useState([]);
+  const [cgpa, setCgpa] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [skills, setSkills] = useState([]);
+  const [burnoutRisk, setBurnoutRisk] = useState(null);
+  const [roadmapPct, setRoadmapPct] = useState(0);
+  const [skillGaps, setSkillGaps] = useState(0);
+  const [studyStats, setStudyStats] = useState(null);
+  const [anim, setAnim] = useState(false);
 
   useEffect(() => {
     requestAnimationFrame(() => setAnim(true));
     const today = new Date();
     const start = new Date(today); start.setDate(today.getDate() - 7);
-    const end   = new Date(today); end.setDate(today.getDate() + 7);
-    
+    const end = new Date(today); end.setDate(today.getDate() + 7);
+
     // Fetch tasks
-    axios.get(`/planner?start=${start.toISOString()}&end=${end.toISOString()}`).then(r => setTasks(r.data)).catch(() => {});
-    
+    axios.get(`/planner?start=${start.toISOString()}&end=${end.toISOString()}`).then(r => setTasks(r.data)).catch(() => { });
+
     // Fetch goals
-    axios.get('/goals').then(r => setGoals(r.data)).catch(() => {});
-    
+    axios.get('/goals').then(r => setGoals(r.data)).catch(() => { });
+
     // Fetch study stats for real user data
-    axios.get('/study/stats').then(r => setStudyStats(r.data)).catch(() => {});
-    
+    axios.get('/study/stats').then(r => setStudyStats(r.data)).catch(() => { });
+
     // Fetch CGPA
-    axios.get('/academic/cgpa').then(r => setCgpa(r.data.cgpa)).catch(() => {});
-    
+    axios.get('/academic/cgpa').then(r => setCgpa(r.data.cgpa)).catch(() => { });
+
     // Fetch user profile with skills
     axios.get('/profile').then(r => {
       setProfile(r.data);
@@ -52,14 +52,14 @@ export default function Dashboard() {
         });
         setSkills(skillList);
       }
-    }).catch(() => {});
-    
+    }).catch(() => { });
+
     // Fetch burnout status
     axios.get('/burnout').then(r => {
       const risk = r.data?.riskLevel || 'low';
       setBurnoutRisk(risk);
-    }).catch(() => {});
-    
+    }).catch(() => { });
+
     // Fetch roadmap progress
     if (user?.targetRole) {
       const cid = user.checklistId;
@@ -69,30 +69,30 @@ export default function Dashboard() {
           const completed = items.filter(Boolean).length;
           const pct = items.length > 0 ? Math.round((completed / items.length) * 100) : 0;
           setRoadmapPct(pct);
-        }).catch(() => {});
+        }).catch(() => { });
       }
-      
+
       // Estimate skill gaps from skill-gap analysis
       axios.get(`/skills/analyze?role=${encodeURIComponent(user.targetRole)}`).then(r => {
         const missingCount = r.data?.overview?.missing_count || r.data?.missing_skills?.length || 0;
         setSkillGaps(missingCount);
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, [user?.targetRole]);
 
-  const today      = new Date();
+  const today = new Date();
   const todayTasks = tasks.filter(t => new Date(t.date).toDateString() === today.toDateString());
-  const completed  = todayTasks.filter(t => t.completed).length;
+  const completed = todayTasks.filter(t => t.completed).length;
   const activeGoals = goals.filter(g => g.status === 'active').length;
 
   // Use real study session data if available, otherwise fallback to tasks
-  const weekData = [0,1,2,3,4,5,6].map(d => {
+  const weekData = [0, 1, 2, 3, 4, 5, 6].map(d => {
     const day = new Date(); day.setDate(day.getDate() - day.getDay() + d + 1);
     const dayDateStr = day.toLocaleDateString('en-US', { weekday: 'short' });
-    
+
     // Priority: Use real study stats > fallback to task duration
     let minutes = 0;
-    
+
     if (studyStats?.dailyMinutes && studyStats.dailyMinutes[dayDateStr]) {
       minutes = studyStats.dailyMinutes[dayDateStr];
     } else {
@@ -101,10 +101,10 @@ export default function Dashboard() {
       const totalSeconds = dayTasks.reduce((sum, t) => sum + (t.timeSpent || t.duration || 0), 0);
       minutes = Math.round(totalSeconds / 60);
     }
-    
+
     const hours = minutes / 60;
     return {
-      d: ['M','T','W','T','F','S','S'][d],
+      d: ['M', 'T', 'W', 'T', 'F', 'S', 'S'][d],
       h: Math.round(hours * 10) / 10,  // Round to 1 decimal place
     };
   });
@@ -112,14 +112,14 @@ export default function Dashboard() {
   const totalWeekHours = weekData.reduce((sum, w) => sum + w.h, 0);
 
   const priColor = { high: G.red, medium: G.amber, low: G.text3 };
-  const priBg    = { high: G.redBg, medium: G.amberBg, low: G.bg2 };
-  const priBd    = { high: G.redBd, medium: G.amberBd, low: G.border };
+  const priBg = { high: G.redBg, medium: G.amberBg, low: G.bg2 };
+  const priBd = { high: G.redBd, medium: G.amberBd, low: G.border };
 
   const greetHour = today.getHours();
-  const greeting  = greetHour < 12 ? 'Good morning' : greetHour < 18 ? 'Good afternoon' : 'Good evening';
+  const greeting = greetHour < 12 ? 'Good morning' : greetHour < 18 ? 'Good afternoon' : 'Good evening';
   const firstName = user?.name?.split(' ')[0] || 'Student';
   const targetRole = profile?.targetRole || user?.targetRole || 'Software Engineer';
-  
+
   // Burnout badge color and text
   const burnoutBadgeColor = {
     high: { bg: G.redBg, color: G.red, bd: G.redBd, text: 'High risk' },
@@ -153,10 +153,10 @@ export default function Dashboard() {
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-        <StatCard label="Tasks Due Today"  value={todayTasks.length} delta={completed > 0 ? 0 : -1} color="blue"   icon="calendar" sub={`${completed} of ${todayTasks.length} completed`} />
-        <StatCard label="CGPA"             value={cgpa != null && !isNaN(Number(cgpa)) ? Number(cgpa).toFixed(1) : '—'} unit={cgpa != null && !isNaN(Number(cgpa)) ? "/10" : ""} delta={0} color="green" icon="star" sub={profile?.college ? `${profile.college}` : "Based on subjects"} />
-        <StatCard label="Active Goals"     value={activeGoals} color="purple" icon="target" sub={`${activeGoals} goal${activeGoals !== 1 ? 's' : ''} in progress`} />
-        <StatCard label="Skill Gaps"       value={skillGaps || "—"} color="amber" icon="zap" sub={`vs ${targetRole}`} />
+        <StatCard label="Tasks Due Today" value={todayTasks.length} delta={completed > 0 ? 0 : -1} color="blue" icon="calendar" sub={`${completed} of ${todayTasks.length} completed`} />
+        <StatCard label="CGPA" value={cgpa != null && !isNaN(Number(cgpa)) ? Number(cgpa).toFixed(1) : '—'} unit={cgpa != null && !isNaN(Number(cgpa)) ? "/10" : ""} delta={0} color="green" icon="star" sub={profile?.college ? `${profile.college}` : "Based on subjects"} />
+        <StatCard label="Active Goals" value={activeGoals} color="purple" icon="target" sub={`${activeGoals} goal${activeGoals !== 1 ? 's' : ''} in progress`} />
+        <StatCard label="Skill Gaps" value={skillGaps || "—"} color="amber" icon="zap" sub={`vs ${targetRole}`} />
       </div>
 
       {/* Main grid */}
@@ -234,10 +234,10 @@ export default function Dashboard() {
           <div className="card" style={{ overflow: 'hidden' }}>
             <div style={{ padding: '12px 16px', borderBottom: `1px solid ${G.border}`, fontSize: 13, fontWeight: 700, color: G.text }}>Quick Actions</div>
             {[
-              { label: "Generate today's plan",  icon: 'calendar', path: '/planner',  badge: `${todayTasks.length} tasks` },
-              { label: 'Analyze skill gaps',     icon: 'zap',      path: '/skills',   badge: skillGaps > 0 ? `${skillGaps} gaps` : 'Complete' },
-              { label: 'Check burnout status',   icon: 'brain',    path: '/burnout',  badge: burnoutBadgeColor.text },
-              { label: 'View career roadmap',    icon: 'map',      path: '/career',   badge: roadmapPct > 0 ? `${roadmapPct}% done` : 'Start' },
+              { label: "Generate today's plan", icon: 'calendar', path: '/planner', badge: `${todayTasks.length} tasks` },
+              { label: 'Analyze skill gaps', icon: 'zap', path: '/skills', badge: skillGaps > 0 ? `${skillGaps} gaps` : 'Complete' },
+              { label: 'Check burnout status', icon: 'brain', path: '/burnout', badge: burnoutBadgeColor.text },
+              { label: 'View career roadmap', icon: 'map', path: '/career', badge: roadmapPct > 0 ? `${roadmapPct}% done` : 'Start' },
             ].map(({ label, icon, path, badge }, idx) => {
               let badgeStyle = { background: G.bg2, color: G.text2, border: `1px solid ${G.border}` };
               // Special styling for burnout badge

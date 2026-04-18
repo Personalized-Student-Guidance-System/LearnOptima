@@ -12,23 +12,25 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
-import LiveJobsDropdown                         from '../components/career/LiveJobsDropdown';
-import { RoleSelectorPage, RoleSwitcher,
-         SkeletonRoleSelector }                 from '../components/career/RoleSelector';
-import ProgressBar                              from '../components/career/ProgressBar';
-import PhaseCard, { SkeletonPhaseCard }         from '../components/career/PhaseCard';
-import SkillGapBanner                           from '../components/career/SkillGapBanner';
+import LiveJobsDropdown from '../components/career/LiveJobsDropdown';
+import {
+  RoleSelectorPage, RoleSwitcher,
+  SkeletonRoleSelector
+} from '../components/career/RoleSelector';
+import ProgressBar from '../components/career/ProgressBar';
+import PhaseCard, { SkeletonPhaseCard } from '../components/career/PhaseCard';
+import SkillGapBanner from '../components/career/SkillGapBanner';
 
 // ── Design tokens (inline fallback so this file works standalone) ─────────────
 const G = {
-  text:    'var(--color-text-primary)',
-  text2:   'var(--color-text-secondary)',
-  text3:   'var(--color-text-tertiary)',
-  border:  'var(--color-border-tertiary)',
+  text: 'var(--color-text-primary)',
+  text2: 'var(--color-text-secondary)',
+  text3: 'var(--color-text-tertiary)',
+  border: 'var(--color-border-tertiary)',
   border2: 'var(--color-border-secondary)',
-  bg2:     'var(--color-background-secondary)',
-  blue:    'var(--color-text-info)',
-  green:   'var(--color-text-success)',
+  bg2: 'var(--color-background-secondary)',
+  blue: 'var(--color-text-info)',
+  green: 'var(--color-text-success)',
 };
 
 // ── Inject shimmer keyframe once ──────────────────────────────────────────────
@@ -45,9 +47,32 @@ function useGlobalAnimations() {
 }
 
 const DEFAULT_ROLES = [
-  'Software Engineer', 'Data Scientist', 'DevOps Engineer',
-  'Frontend Developer', 'Backend Developer', 'ML Engineer',
-  'Full Stack Developer', 'Product Manager',
+  // 💻 Technology
+  'Software Engineer', 'Frontend Developer', 'Backend Developer',
+  'Full Stack Developer', 'Mobile Developer', 'DevOps Engineer',
+  'Cloud Architect', 'Cybersecurity Engineer', 'Blockchain Developer',
+  'Embedded Systems Engineer',
+  // 🤖 Data & AI
+  'Data Scientist', 'ML Engineer', 'AI Research Scientist',
+  'Data Analyst', 'Data Engineer', 'NLP Engineer',
+  // 🏥 Healthcare & Medical
+  'Nurse', 'Doctor', 'Biomedical Engineer',
+  'Clinical Data Analyst', 'Public Health Specialist',
+  // 💼 Business & Management
+  'Product Manager', 'Business Analyst', 'Project Manager',
+  'Marketing Analyst', 'HR Manager', 'Operations Manager',
+  // 💰 Finance
+  'Investment Banker', 'Financial Analyst', 'Quant Analyst',
+  'Risk Manager', 'FinTech Developer',
+  // 🎨 Creative & Design
+  'UI/UX Designer', 'Graphic Designer', 'Game Developer',
+  'Content Strategist', 'Video Producer',
+  // 🏛️ Government & Civil Services
+  'UPSC Civil Services', 'Government Data Analyst',
+  'Policy Researcher',
+  // 🔬 Science & Research
+  'Research Scientist', 'Environmental Scientist',
+  'Mechanical Engineer', 'Electrical Engineer', 'Chemical Engineer',
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,15 +80,15 @@ export default function CareerRoadmap() {
   useGlobalAnimations();
   const navigate = useNavigate();
 
-  const [userProfile,    setUserProfile]    = useState(null);
-  const [role,           setRole]           = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
+  const [role, setRole] = useState(null);
   const [availableRoles, setAvailableRoles] = useState(DEFAULT_ROLES);
-  const [data,           setData]           = useState(null);  // full API response
-  const [checked,        setChecked]        = useState({});
-  const [saving,         setSaving]         = useState({});
-  const [loading,        setLoading]        = useState(true);
-  const [loadingRoles,   setLoadingRoles]   = useState(false);
-  const [jobRoles,       setJobRoles]       = useState([]);
+  const [data, setData] = useState(null);  // full API response
+  const [checked, setChecked] = useState({});
+  const [saving, setSaving] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [loadingRoles, setLoadingRoles] = useState(false);
+  const [jobRoles, setJobRoles] = useState([]);
 
   // ── Load profile on mount ─────────────────────────────────────────────────
   useEffect(() => {
@@ -73,7 +98,7 @@ export default function CareerRoadmap() {
         const res = await axios.get('/profile');
         setUserProfile(res.data);
         if (res.data?.availableRoles?.length) setAvailableRoles(res.data.availableRoles);
-        if (res.data?.targetRole)             setRole(res.data.targetRole);
+        if (res.data?.targetRole) setRole(res.data.targetRole);
       } catch (err) {
         console.error('Failed to load profile:', err);
       } finally {
@@ -163,9 +188,9 @@ export default function CareerRoadmap() {
 
   // ── Derived values ────────────────────────────────────────────────────────
   // FIXED: backend returns phases at root level, not inside data.roadmap
-  const phases   = data?.phases || [];
+  const phases = data?.phases || [];
 
-  const allItems  = phases.flatMap((p) => p.tasks || []);
+  const allItems = phases.flatMap((p) => p.tasks || []);
   const doneCount = Object.values(checked).filter(Boolean).length;
 
   // ── Render: auto-redirect if no role set ──────────────────────────────────
@@ -215,18 +240,19 @@ export default function CareerRoadmap() {
       <LiveJobsDropdown role={role} jobs={jobRoles} loading={loadingRoles} />
 
       {/* Role switcher strip */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button 
-            title="Refresh roadmap data"
-            onClick={handleRefresh}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              padding: 4, borderRadius: 6, color: G.text3,
-              fontSize: 16, lineHeight: 1, display: 'flex', alignItems: 'center',
-              border: `1px solid ${G.border}`
-            }}
-          >↺ Refresh Roadmap</button>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button
+          title="Refresh roadmap data"
+          onClick={handleRefresh}
+          style={{
+            background: 'none', cursor: 'pointer',
+            padding: '6px 12px', borderRadius: 8, color: G.text2,
+            fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
+            border: `1px solid ${G.border}`,
+            transition: 'all 0.2s ease'
+          }}
+        >↺ Refresh Roadmap</button>
+      </div>
 
       {/* Overall progress */}
       <ProgressBar doneCount={doneCount} totalCount={allItems.length} />
@@ -244,7 +270,13 @@ export default function CareerRoadmap() {
 
       {/* Roadmap phases */}
       {loading ? (
-        <SkeletonPhaseCard count={6} />
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: G.blueBg, color: G.blue, borderRadius: 8, fontSize: 12, border: `1px solid ${G.blueBd}` }}>
+            <span className="spinner" style={{ width: 14, height: 14, border: '2px solid', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            🤖 Checking DB cache or AI Generating Custom Pipeline (This may take 10-20 seconds for unseen roles)...
+          </div>
+          <SkeletonPhaseCard count={6} />
+        </div>
       ) : phases.length === 0 ? (
         <EmptyRoadmap role={role} onRetry={() => fetchRoadmap(role)} data={data} />
       ) : (
@@ -317,7 +349,7 @@ function EmptyRoadmap({ role, onRetry, data }) {
       <div style={{ background: G.bg2, padding: 12, borderRadius: 8, border: `1px solid ${G.border}` }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: G.text3, marginBottom: 8 }}>DEBUG</div>
         <pre style={{ fontSize: 10, color: G.text3, whiteSpace: 'pre-wrap', fontFamily: 'monospace', lineHeight: 1.4, margin: 0 }}>
-{`Selected Role:   ${role || 'None'}
+          {`Selected Role:   ${role || 'None'}
 Data Loaded:     ${data ? 'Yes' : 'No'}
 Phases:          ${data?.phases?.length ?? 0}
 Source:          ${data?.source || 'Unknown'}`}

@@ -5,9 +5,9 @@ import { Ic } from '../design/ui';
 import { G, ICONS } from '../design/tokens';
 import * as API from '../services/api';
 
-const urgencyColor = { Critical: G.red,    High: G.amber,    Medium: G.blue  };
-const urgencyBg    = { Critical: G.redBg,  High: G.amberBg,  Medium: G.blueBg };
-const urgencyBd    = { Critical: G.redBd,  High: G.amberBd,  Medium: G.blueBd };
+const urgencyColor = { Critical: G.red, High: G.amber, Medium: G.blue };
+const urgencyBg = { Critical: G.redBg, High: G.amberBg, Medium: G.blueBg };
+const urgencyBd = { Critical: G.redBd, High: G.amberBd, Medium: G.blueBd };
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
@@ -56,17 +56,17 @@ function ScoreArc({ score, color, size = 120 }) {
   const dash = (score / 100) * circ;
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={G.bg2} strokeWidth={9} />
-      <circle cx={size/2} cy={size/2} r={r} fill="none"
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={G.bg2} strokeWidth={9} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none"
         stroke={color} strokeWidth={9}
         strokeDasharray={`${dash} ${circ}`}
         strokeDashoffset={circ * 0.25}
         strokeLinecap="round"
         style={{ transition: 'stroke-dasharray 0.9s ease' }}
       />
-      <text x={size/2} y={size/2 - 4} textAnchor="middle" dominantBaseline="middle"
+      <text x={size / 2} y={size / 2 - 4} textAnchor="middle" dominantBaseline="middle"
         style={{ fontSize: 24, fontWeight: 800, fill: color }}>{score}</text>
-      <text x={size/2} y={size/2 + 16} textAnchor="middle" dominantBaseline="middle"
+      <text x={size / 2} y={size / 2 + 16} textAnchor="middle" dominantBaseline="middle"
         style={{ fontSize: 9, fontWeight: 600, fill: G.text3 }}>MATCH %</text>
     </svg>
   );
@@ -172,15 +172,39 @@ export default function SkillGap() {
   const [newSkill, setNewSkill] = useState('');
   const [activeTab, setActiveTab] = useState('priorities');
   const prevRoleRef = useRef(null);
+  const [selectedRole, setSelectedRole] = useState(user?.targetRole || 'Software Engineer');
+  const [allRoles, setAllRoles] = useState(
+    user?.targetRoles?.length ? user.targetRoles : [user?.targetRole || 'Software Engineer']
+  );
+  const [customRoleInput, setCustomRoleInput] = useState('');
 
   const targetRole = user?.targetRole || 'Software Engineer';
 
   useEffect(() => {
-    if (targetRole !== prevRoleRef.current) {
-      prevRoleRef.current = targetRole;
-      loadAnalysis(targetRole);
-    }
-  }, [targetRole]);
+    const fetchRolesAndLoad = async () => {
+      try {
+        const profileRes = await API.getStudentProfile();
+        const profile = profileRes.data;
+
+        // Populate the dropdown with all roles from the profile
+        const roles = profile.targetRoles?.length
+          ? profile.targetRoles
+          : [profile.targetRole || 'Software Engineer'];
+        setAllRoles(roles);
+
+        // If selectedRole isn't in the list (e.g. first load), reset to primary
+        if (!roles.includes(selectedRole)) {
+          setSelectedRole(profile.targetRole || roles[0]);
+          return; // the state change above will re-trigger this effect
+        }
+      } catch (e) {
+        // profile fetch failed — keep current selectedRole
+      }
+      loadAnalysis(selectedRole);
+    };
+
+    fetchRolesAndLoad();
+  }, [selectedRole]);
 
   const loadAnalysis = async (role, refresh = false) => {
     setLoading(true);
@@ -252,14 +276,14 @@ export default function SkillGap() {
     </div>
   );
 
-  const overview      = data.overview || {};
-  const matched       = data.matched_skills || [];
-  const missing       = data.missing_skills || [];
+  const overview = data.overview || {};
+  const matched = data.matched_skills || [];
+  const missing = data.missing_skills || [];
   const topPriorities = data.top_5_priorities || [];
   const learningQueue = data.learning_queue || [];
-  const score         = overview.match_score || 0;
-  const scoreColor    = score >= 80 ? G.green : score >= 60 ? G.amber : score >= 40 ? G.blue : G.red;
-  const scoreLabel    = score >= 80 ? 'Excellent' : score >= 60 ? 'Good' : score >= 40 ? 'Developing' : 'Beginner';
+  const score = overview.match_score || 0;
+  const scoreColor = score >= 80 ? G.green : score >= 60 ? G.amber : score >= 40 ? G.blue : G.red;
+  const scoreLabel = score >= 80 ? 'Excellent' : score >= 60 ? 'Good' : score >= 40 ? 'Developing' : 'Beginner';
 
   const sortedPriorities = [...topPriorities].sort((a, b) => {
     const o = { Critical: 0, High: 1, Medium: 2 };
@@ -268,7 +292,7 @@ export default function SkillGap() {
 
   const TABS = [
     { id: 'priorities', label: '⭐ Priorities' },
-    { id: 'ai',         label: '🤖 AI Action Plan' },
+    { id: 'ai', label: '🤖 AI Action Plan' },
   ];
 
   return (
@@ -296,21 +320,46 @@ export default function SkillGap() {
         </div>
 
         {/* Role pill */}
+        {/* Role pill — replace the existing one */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10,
           padding: '8px 14px', borderRadius: 8,
           background: `${G.blue}10`, border: `1px solid ${G.blueBd}`,
         }}>
           <div>
-            <div style={{ fontSize: 9, color: G.text3, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Target Role</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: G.blue, marginTop: 1 }}>{targetRole}</div>
+            <div style={{
+              fontSize: 9, color: G.text3, fontWeight: 700,
+              letterSpacing: '0.08em', textTransform: 'uppercase',
+            }}>Target Role</div>
+
+            {/* NEW: dropdown instead of static text */}
+            <select
+              value={selectedRole}
+              onChange={e => setSelectedRole(e.target.value)}
+              style={{
+                fontSize: 13, fontWeight: 700, color: G.blue,
+                background: 'transparent', border: 'none',
+                outline: 'none', cursor: 'pointer', marginTop: 1,
+                padding: 0,
+              }}
+            >
+              {allRoles.map(role => (
+                <option key={role} value={role}>{role}</option>
+              ))}
+              {/* Allow navigating to profile to add more roles */}
+            </select>
           </div>
+
           <div style={{ width: 1, height: 26, background: G.blueBd }} />
+
           <button
             className="btn btn-secondary btn-sm"
             style={{ fontSize: 10, padding: '3px 8px' }}
             onClick={() => navigate('/profile')}
-          >Change Role →</button>
+          >
+            Edit roles →
+          </button>
+
           <button
             title="Re-run live scraping"
             style={{
@@ -318,7 +367,7 @@ export default function SkillGap() {
               padding: 4, borderRadius: 6, color: G.text3,
               fontSize: 14, lineHeight: 1,
             }}
-            onClick={() => loadAnalysis(targetRole, true)}
+            onClick={() => loadAnalysis(selectedRole, true)}
           >↺</button>
         </div>
       </div>
@@ -341,9 +390,9 @@ export default function SkillGap() {
 
           {/* Stat pills */}
           <div style={{ display: 'flex', gap: 10, flex: 1, flexWrap: 'wrap', minWidth: 240 }}>
-            <StatPill label="Matched"  val={overview.matched_count || 0} color={G.green}  sub={`of ${overview.total_required || 0} required`} />
-            <StatPill label="To Learn" val={overview.missing_count || 0} color={G.red}    sub="identified gaps" />
-            <StatPill label="In Queue" val={learningQueue.length}         color={G.blue}   sub="skills queued" />
+            <StatPill label="Matched" val={overview.matched_count || 0} color={G.green} sub={`of ${overview.total_required || 0} required`} />
+            <StatPill label="To Learn" val={overview.missing_count || 0} color={G.red} sub="identified gaps" />
+            <StatPill label="In Queue" val={learningQueue.length} color={G.blue} sub="skills queued" />
             <StatPill label="Ready In" val={`${aiRec?.estimated_time_to_ready_weeks || data.estimated_weeks || '?'}w`} color={G.purple} sub="estimated" />
           </div>
 
@@ -410,44 +459,45 @@ export default function SkillGap() {
         <Ic path={ICONS[expandedGaps ? 'chevDown' : 'chevRight']} size={14} color={G.text2} />
       </div>
 
-      {expandedGaps && (
-        <div className="sg-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-          {/* Matched */}
-          <div className="card" style={{ overflow: 'hidden' }}>
-            <div style={{ padding: '10px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.green}09` }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: G.green }}>
-                ✅ Your Strengths ({matched.length})
-              </span>
-            </div>
-            <div style={{ padding: '14px 16px', display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-              {matched.length === 0
-                ? <p style={{ fontSize: 12, color: G.text3, margin: 0 }}>No matched skills yet — add skills in your Profile.</p>
-                : matched.slice(0, 14).map(s => (
+      {
+        expandedGaps && (
+          <div className="sg-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+            {/* Matched */}
+            <div className="card" style={{ overflow: 'hidden' }}>
+              <div style={{ padding: '10px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.green}09` }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: G.green }}>
+                  ✅ Your Strengths ({matched.length})
+                </span>
+              </div>
+              <div style={{ padding: '14px 16px', display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                {matched.length === 0
+                  ? <p style={{ fontSize: 12, color: G.text3, margin: 0 }}>No matched skills yet — add skills in your Profile.</p>
+                  : matched.slice(0, 14).map(s => (
                     <span key={s.skill} style={{
                       padding: '4px 10px', borderRadius: 99, fontSize: 11, fontWeight: 500,
                       background: G.greenBg, color: G.green, border: `1px solid ${G.greenBd}`,
                     }}>{s.skill}</span>
                   ))
-              }
-              {matched.length > 14 && (
-                <span style={{ padding: '4px 10px', borderRadius: 99, fontSize: 11, background: G.bg2, color: G.text3, border: `1px solid ${G.border}` }}>
-                  +{matched.length - 14} more
-                </span>
-              )}
+                }
+                {matched.length > 14 && (
+                  <span style={{ padding: '4px 10px', borderRadius: 99, fontSize: 11, background: G.bg2, color: G.text3, border: `1px solid ${G.border}` }}>
+                    +{matched.length - 14} more
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* Missing */}
-          <div className="card" style={{ overflow: 'hidden' }}>
-            <div style={{ padding: '10px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.red}09` }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: G.red }}>
-                📌 To Learn ({missing.length})
-              </span>
-            </div>
-            <div style={{ padding: '14px 16px', display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-              {missing.length === 0
-                ? <p style={{ fontSize: 12, color: G.text3, margin: 0 }}>No gaps! You're well covered for {targetRole}.</p>
-                : missing.slice(0, 14).map(s => (
+            {/* Missing */}
+            <div className="card" style={{ overflow: 'hidden' }}>
+              <div style={{ padding: '10px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.red}09` }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: G.red }}>
+                  📌 To Learn ({missing.length})
+                </span>
+              </div>
+              <div style={{ padding: '14px 16px', display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                {missing.length === 0
+                  ? <p style={{ fontSize: 12, color: G.text3, margin: 0 }}>No gaps! You're well covered for {targetRole}.</p>
+                  : missing.slice(0, 14).map(s => (
                     <span key={s.skill}
                       className="sg-chip"
                       onClick={() => addToQueue(s.skill)}
@@ -463,16 +513,17 @@ export default function SkillGap() {
                       {s.skill} <span style={{ opacity: 0.6, fontSize: 10 }}>+</span>
                     </span>
                   ))
-              }
-            </div>
-            {missing.length > 0 && (
-              <div style={{ padding: '0 16px 10px', fontSize: 10, color: G.text3 }}>
-                Click a skill to add it to your learning queue
+                }
               </div>
-            )}
+              {missing.length > 0 && (
+                <div style={{ padding: '0 16px 10px', fontSize: 10, color: G.text3 }}>
+                  Click a skill to add it to your learning queue
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* ── Learning Queue ───────────────────────────────────────────────── */}
       <div className="card" style={{ marginBottom: 20 }}>
@@ -544,267 +595,285 @@ export default function SkillGap() {
       {/* ──────────────────────────────────────────────────────────────────── */}
       {/* TAB: Priorities                                                      */}
       {/* ──────────────────────────────────────────────────────────────────── */}
-      {activeTab === 'priorities' && (
-        <div className="sg-in">
-          {/* Cards grid */}
-          <div className="card" style={{ overflow: 'hidden', marginBottom: 20 }}>
-            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.amber}08`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: G.amber }}>
-                  Top Priority Skills for {targetRole}
-                </h3>
-                <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>
-                  Scraped from live Naukri / LinkedIn job postings · ordered by interview frequency
-                </p>
-              </div>
-              <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 99, background: `${G.amber}15`, color: G.amber, border: `1px solid ${G.amberBd}`, fontWeight: 700 }}>
-                {sortedPriorities.length} skills
-              </span>
-            </div>
-
-            <div style={{ padding: 16 }}>
-              {sortedPriorities.length === 0 ? (
-                /* Only show "all covered" if matched > 0 and missing === 0 */
-                missing.length === 0 && matched.length > 0 ? (
-                  <div style={{ textAlign: 'center', padding: '24px 16px', color: G.text2 }}>
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: G.green }}>All priorities covered!</div>
-                    <p style={{ fontSize: 12, color: G.text2, margin: '6px 0 0' }}>
-                      You already have all the required skills for {targetRole} based on live job data.
-                    </p>
-                  </div>
-                ) : (
-                  <div style={{ textAlign: 'center', padding: '24px 16px', color: G.text2 }}>
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>No priority data yet</div>
-                    <p style={{ fontSize: 12, color: G.text3, margin: '6px 0 12px' }}>
-                      The ML analyzer couldn't extract priorities for this role. Try refreshing.
-                    </p>
-                    <button className="btn btn-secondary btn-sm" onClick={() => loadAnalysis(targetRole)}>
-                      Retry Analysis
-                    </button>
-                  </div>
-                )
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 12 }}>
-                  {sortedPriorities.map((skill, i) => (
-                    <div key={i}
-                      className="sg-card sg-chip"
-                      onClick={() => addToQueue(skill.skill)}
-                      title="Click to add to queue"
-                      style={{
-                        padding: 14, borderRadius: 10,
-                        border: `1px solid ${urgencyBd[skill.urgency] || G.border}`,
-                        background: `${urgencyBg[skill.urgency] || G.bg}88`,
-                      }}>
-                      {/* Rank + badge */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                        <div style={{
-                          width: 26, height: 26, borderRadius: 7,
-                          background: i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#ca8a04' : G.bg2,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 10, fontWeight: 800,
-                          color: i < 3 ? G.white : G.text3,
-                          flexShrink: 0,
-                        }}>#{i + 1}</div>
-                        <UrgencyBadge urgency={skill.urgency || 'Medium'} />
-                      </div>
-
-                      <div style={{ fontSize: 12, fontWeight: 700, color: G.text, marginBottom: 10 }}>
-                        {skill.skill}
-                      </div>
-
-                      {/* Impact bar */}
-                      <div style={{ marginBottom: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                          <span style={{ fontSize: 9, color: G.text3, fontWeight: 600 }}>IMPACT</span>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: G.text }}>{skill.priority_score || 80}%</span>
-                        </div>
-                        <MiniBar value={skill.priority_score || 80} color={urgencyColor[skill.urgency] || G.blue} />
-                      </div>
-
-                      {/* Interview freq bar */}
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                          <span style={{ fontSize: 9, color: G.text3, fontWeight: 600 }}>INTERVIEW FREQ</span>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: G.text }}>{skill.interview_frequency || 75}%</span>
-                        </div>
-                        <MiniBar value={skill.interview_frequency || 75} color={G.purple} />
-                      </div>
-
-                      <div style={{
-                        paddingTop: 8, borderTop: `1px solid ${urgencyBd[skill.urgency] || G.border}`,
-                        fontSize: 10, color: urgencyColor[skill.urgency] || G.text3,
-                        display: 'flex', justifyContent: 'space-between',
-                      }}>
-                        <span>⏱ ~{Math.ceil((skill.time_to_proficiency_days || 30) / 7)}w</span>
-                        <span>+ Add to queue</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Ranked table */}
-          {sortedPriorities.length > 0 && (
+      {
+        activeTab === 'priorities' && (
+          <div className="sg-in">
+            {/* Cards grid */}
             <div className="card" style={{ overflow: 'hidden', marginBottom: 20 }}>
-              <div style={{ padding: '10px 16px', borderBottom: `1px solid ${G.border}` }}>
-                <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>Full Ranked Table</h3>
-                <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>
-                  All missing skills ranked for {targetRole} from live job data
-                </p>
+              <div style={{ padding: '12px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.amber}08`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: G.amber }}>
+                    Top Priority Skills for {targetRole}
+                  </h3>
+                  <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>
+                    Scraped from live Naukri / LinkedIn job postings · ordered by interview frequency
+                  </p>
+                </div>
+                <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 99, background: `${G.amber}15`, color: G.amber, border: `1px solid ${G.amberBd}`, fontWeight: 700 }}>
+                  {sortedPriorities.length} skills
+                </span>
               </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ background: G.bg }}>
-                      {['#', 'Skill', 'Urgency', 'Impact', 'Interview Freq', 'Est. Time', 'Action'].map(h => (
-                        <th key={h} style={{
-                          padding: '8px 14px', textAlign: h === 'Skill' ? 'left' : 'center',
-                          fontSize: 10, fontWeight: 700, color: G.text3,
-                          borderBottom: `1px solid ${G.border}`, whiteSpace: 'nowrap',
-                        }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
+
+              <div style={{ padding: 16 }}>
+                {sortedPriorities.length === 0 ? (
+                  /* Only show "all covered" if matched > 0 and missing === 0 */
+                  missing.length === 0 && matched.length > 0 ? (
+                    <div style={{ textAlign: 'center', padding: '24px 16px', color: G.text2 }}>
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: G.green }}>All priorities covered!</div>
+                      <p style={{ fontSize: 12, color: G.text2, margin: '6px 0 0' }}>
+                        You already have all the required skills for {targetRole} based on live job data.
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '24px 16px', color: G.text2 }}>
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>No priority data yet</div>
+                      <p style={{ fontSize: 12, color: G.text3, margin: '6px 0 12px' }}>
+                        The ML analyzer couldn't extract priorities for this role. Try refreshing.
+                      </p>
+                      <button className="btn btn-secondary btn-sm" onClick={() => loadAnalysis(targetRole)}>
+                        Retry Analysis
+                      </button>
+                    </div>
+                  )
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 12 }}>
                     {sortedPriorities.map((skill, i) => (
-                      <tr key={i} className="sg-row"
-                        style={{ borderBottom: `1px solid ${G.border}`, transition: 'background 0.15s' }}>
-                        <td style={{ padding: '10px 14px', fontSize: 11, color: G.text3, textAlign: 'center', fontWeight: 700 }}>
-                          {i + 1}
-                        </td>
-                        <td style={{ padding: '10px 14px', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                          {skill.skill}
-                        </td>
-                        <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                      <div key={i}
+                        className="sg-card sg-chip"
+                        onClick={() => addToQueue(skill.skill)}
+                        title="Click to add to queue"
+                        style={{
+                          padding: 14, borderRadius: 10,
+                          border: `1px solid ${urgencyBd[skill.urgency] || G.border}`,
+                          background: `${urgencyBg[skill.urgency] || G.bg}88`,
+                        }}>
+                        {/* Rank + badge */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                          <div style={{
+                            width: 26, height: 26, borderRadius: 7,
+                            background: i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#ca8a04' : G.bg2,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 10, fontWeight: 800,
+                            color: i < 3 ? G.white : G.text3,
+                            flexShrink: 0,
+                          }}>#{i + 1}</div>
                           <UrgencyBadge urgency={skill.urgency || 'Medium'} />
-                        </td>
-                        <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                            <MiniBar value={skill.priority_score || 80} color={G.amber} />
-                            <span style={{ fontSize: 10, color: G.text2, width: 30 }}>{skill.priority_score || 80}%</span>
+                        </div>
+
+                        <div style={{ fontSize: 12, fontWeight: 700, color: G.text, marginBottom: 4 }}>
+                          {skill.skill}
+                        </div>
+                        <div style={{ fontSize: 10, color: G.text2, lineHeight: 1.4, marginBottom: 12, height: 28, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                          {skill.description}
+                        </div>
+
+                        {/* Recommendation / Recommendation */}
+                        <div style={{
+                          padding: '8px 10px', borderRadius: 6, background: G.bg2,
+                          border: `1px solid ${G.border}`, marginBottom: 12
+                        }}>
+                          <div style={{ fontSize: 8, fontWeight: 800, color: G.blue, letterSpacing: '0.05em', marginBottom: 2 }}>PRO TIP</div>
+                          <div style={{ fontSize: 10, color: G.text, lineHeight: 1.3, fontWeight: 500 }}>
+                            {skill.recommendation}
                           </div>
-                        </td>
-                        <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                            <MiniBar value={skill.interview_frequency || 75} color={G.purple} />
-                            <span style={{ fontSize: 10, color: G.text2, width: 30 }}>{skill.interview_frequency || 75}%</span>
+                        </div>
+
+                        {/* Impact bar */}
+                        <div style={{ marginBottom: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                            <span style={{ fontSize: 9, color: G.text3, fontWeight: 600 }}>IMPACT</span>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: G.text }}>{skill.priority_score || 80}%</span>
                           </div>
-                        </td>
-                        <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 11, color: G.text2 }}>
-                          {Math.ceil((skill.time_to_proficiency_days || 30) / 7)}w
-                        </td>
-                        <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                          <button
-                            onClick={() => addToQueue(skill.skill)}
-                            style={{
-                              padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-                              background: G.blueBg, color: G.blue,
-                              border: `1px solid ${G.blueBd}`, cursor: 'pointer',
-                            }}>+ Queue</button>
-                        </td>
-                      </tr>
+                          <MiniBar value={skill.priority_score || 80} color={urgencyColor[skill.urgency] || G.blue} />
+                        </div>
+
+                        {/* Interview freq bar */}
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                            <span style={{ fontSize: 9, color: G.text3, fontWeight: 600 }}>INTERVIEW FREQ</span>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: G.text }}>{skill.interview_frequency || 75}%</span>
+                          </div>
+                          <MiniBar value={skill.interview_frequency || 75} color={G.purple} />
+                        </div>
+
+                        <div style={{
+                          paddingTop: 8, borderTop: `1px solid ${urgencyBd[skill.urgency] || G.border}`,
+                          fontSize: 10, color: urgencyColor[skill.urgency] || G.text3,
+                          display: 'flex', justifyContent: 'space-between',
+                        }}>
+                          <span>⏱ ~{Math.ceil((skill.time_to_proficiency_days || 30) / 7)}w</span>
+                          <span>+ Add to queue</span>
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
+                  </div>
+                )}
               </div>
             </div>
-          )}
-        </div>
-      )}
+
+            {/* Ranked table */}
+            {sortedPriorities.length > 0 && (
+              <div className="card" style={{ overflow: 'hidden', marginBottom: 20 }}>
+                <div style={{ padding: '10px 16px', borderBottom: `1px solid ${G.border}` }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>Full Ranked Table</h3>
+                  <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>
+                    All missing skills ranked for {targetRole} from live job data
+                  </p>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: G.bg }}>
+                        {['#', 'Skill', 'Urgency', 'Impact', 'Interview Freq', 'Est. Time', 'Action'].map(h => (
+                          <th key={h} style={{
+                            padding: '8px 14px', textAlign: h === 'Skill' ? 'left' : 'center',
+                            fontSize: 10, fontWeight: 700, color: G.text3,
+                            borderBottom: `1px solid ${G.border}`, whiteSpace: 'nowrap',
+                          }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedPriorities.map((skill, i) => (
+                        <tr key={i} className="sg-row"
+                          style={{ borderBottom: `1px solid ${G.border}`, transition: 'background 0.15s' }}>
+                          <td style={{ padding: '10px 14px', fontSize: 11, color: G.text3, textAlign: 'center', fontWeight: 700 }}>
+                            {i + 1}
+                          </td>
+                          <td style={{ padding: '10px 14px', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {skill.skill}
+                          </td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                            <UrgencyBadge urgency={skill.urgency || 'Medium'} />
+                          </td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                              <MiniBar value={skill.priority_score || 80} color={G.amber} />
+                              <span style={{ fontSize: 10, color: G.text2, width: 30 }}>{skill.priority_score || 80}%</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                              <MiniBar value={skill.interview_frequency || 75} color={G.purple} />
+                              <span style={{ fontSize: 10, color: G.text2, width: 30 }}>{skill.interview_frequency || 75}%</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 11, color: G.text2 }}>
+                            {Math.ceil((skill.time_to_proficiency_days || 30) / 7)}w
+                          </td>
+                          <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                            <button
+                              onClick={() => addToQueue(skill.skill)}
+                              style={{
+                                padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+                                background: G.blueBg, color: G.blue,
+                                border: `1px solid ${G.blueBd}`, cursor: 'pointer',
+                              }}>+ Queue</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      }
 
       {/* ──────────────────────────────────────────────────────────────────── */}
       {/* TAB: AI Action Plan                                                  */}
       {/* ──────────────────────────────────────────────────────────────────── */}
-      {activeTab === 'ai' && aiRec && (
-        <div className="sg-in">
-          <div className="card" style={{ overflow: 'hidden', marginBottom: 20 }}>
-            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.blue}08` }}>
-              <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: G.blue }}>
-                🤖 AI-Powered Insights for {targetRole}
-              </h3>
-              <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>
-                Personalized plan based on your skills + live job-market data
-              </p>
-            </div>
-            <div style={{ padding: 16 }}>
-
-              {/* Assessment + ETA */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 20, marginBottom: 20, alignItems: 'start' }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: G.text, marginBottom: 6 }}>Your Assessment</div>
-                  <p style={{ fontSize: 12, color: G.text2, lineHeight: 1.6, margin: 0 }}>{aiRec.analysis}</p>
-                </div>
-                <div style={{
-                  textAlign: 'center', padding: '16px 22px', borderRadius: 10,
-                  background: `${G.blue}08`, border: `1px solid ${G.blueBd}`, flexShrink: 0,
-                }}>
-                  <div style={{ fontSize: 34, fontWeight: 800, color: G.blue, lineHeight: 1 }}>
-                    {aiRec.estimated_time_to_ready_weeks}
-                  </div>
-                  <div style={{ fontSize: 9, color: G.text3, marginTop: 5, fontWeight: 700, letterSpacing: '0.06em' }}>
-                    WEEKS TO<br />READY
-                  </div>
-                </div>
+      {
+        activeTab === 'ai' && aiRec && (
+          <div className="sg-in">
+            <div className="card" style={{ overflow: 'hidden', marginBottom: 20 }}>
+              <div style={{ padding: '12px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.blue}08` }}>
+                <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: G.blue }}>
+                  🤖 AI-Powered Insights for {targetRole}
+                </h3>
+                <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>
+                  Personalized plan based on your skills + live job-market data
+                </p>
               </div>
+              <div style={{ padding: 16 }}>
 
-              {/* Action plan */}
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: G.text, marginBottom: 10 }}>Recommended Action Plan</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
-                  {aiRec.action_plan?.map((phase, i) => (
-                    <div key={i} style={{
-                      padding: '12px 14px', borderRadius: 8,
-                      border: `1px solid ${G.border}`, background: G.bg,
-                    }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: G.blue, marginBottom: 4, letterSpacing: '0.06em' }}>
-                        WEEK {phase.week}
-                      </div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: G.text, marginBottom: 4 }}>{phase.focus}</div>
-                      <div style={{ fontSize: 11, color: G.text2, lineHeight: 1.4 }}>{phase.action}</div>
+                {/* Assessment + ETA */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 20, marginBottom: 20, alignItems: 'start' }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: G.text, marginBottom: 6 }}>Your Assessment</div>
+                    <p style={{ fontSize: 12, color: G.text2, lineHeight: 1.6, margin: 0 }}>{aiRec.analysis}</p>
+                  </div>
+                  <div style={{
+                    textAlign: 'center', padding: '16px 22px', borderRadius: 10,
+                    background: `${G.blue}08`, border: `1px solid ${G.blueBd}`, flexShrink: 0,
+                  }}>
+                    <div style={{ fontSize: 34, fontWeight: 800, color: G.blue, lineHeight: 1 }}>
+                      {aiRec.estimated_time_to_ready_weeks}
                     </div>
-                  ))}
+                    <div style={{ fontSize: 9, color: G.text3, marginTop: 5, fontWeight: 700, letterSpacing: '0.06em' }}>
+                      WEEKS TO<br />READY
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              {/* Next Steps + Gaps */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div style={{ padding: '14px 16px', borderRadius: 10, border: `1px solid ${G.greenBd}`, background: G.greenBg }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: G.green, marginBottom: 10 }}>✅ Next Steps</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {aiRec.next_steps?.map((step, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: G.text2, lineHeight: 1.4 }}>
-                        <span style={{
-                          width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
-                          background: G.green, color: G.white,
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 9, fontWeight: 800,
-                        }}>{i + 1}</span>
-                        <span>{step.replace(/^\d+\.\s*/, '')}</span>
+                {/* Action plan */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: G.text, marginBottom: 10 }}>Recommended Action Plan</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
+                    {aiRec.action_plan?.map((phase, i) => (
+                      <div key={i} style={{
+                        padding: '12px 14px', borderRadius: 8,
+                        border: `1px solid ${G.border}`, background: G.bg,
+                      }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: G.blue, marginBottom: 4, letterSpacing: '0.06em' }}>
+                          WEEK {phase.week}
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: G.text, marginBottom: 4 }}>{phase.focus}</div>
+                        <div style={{ fontSize: 11, color: G.text2, lineHeight: 1.4 }}>{phase.action}</div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div style={{ padding: '14px 16px', borderRadius: 10, border: `1px solid ${G.redBd}`, background: G.redBg }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: G.red, marginBottom: 10 }}>⚠️ Critical Gaps (from live data)</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {(aiRec.weaknesses || []).map((w, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: G.text2, lineHeight: 1.4 }}>
-                        <span style={{ color: G.red, flexShrink: 0, marginTop: 1 }}>•</span>
-                        <span>{w}</span>
-                      </div>
-                    ))}
+                {/* Next Steps + Gaps */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div style={{ padding: '14px 16px', borderRadius: 10, border: `1px solid ${G.greenBd}`, background: G.greenBg }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: G.green, marginBottom: 10 }}>✅ Next Steps</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {aiRec.next_steps?.map((step, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: G.text2, lineHeight: 1.4 }}>
+                          <span style={{
+                            width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                            background: G.green, color: G.white,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 9, fontWeight: 800,
+                          }}>{i + 1}</span>
+                          <span>{step.replace(/^\d+\.\s*/, '')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '14px 16px', borderRadius: 10, border: `1px solid ${G.redBd}`, background: G.redBg }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: G.red, marginBottom: 10 }}>⚠️ Critical Gaps (from live data)</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {(aiRec.weaknesses || []).map((w, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: G.text2, lineHeight: 1.4 }}>
+                          <span style={{ color: G.red, flexShrink: 0, marginTop: 1 }}>•</span>
+                          <span>{w}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 }

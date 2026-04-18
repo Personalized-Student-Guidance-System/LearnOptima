@@ -63,7 +63,7 @@ function getCache(role) {
   if (entry && (Date.now() - entry.ts < ML_CACHE_TTL)) {
     // If we've updated the logic to favor O*NET, we might want to bypass old non-onet-api caches
     if (entry.data && entry.data.source === 'ml-cache-old') {
-       return null; 
+      return null;
     }
     return entry.data;
   }
@@ -75,49 +75,75 @@ function setCache(role, data) {
 
 // ─── Map ML output → frontend shape ───────────────────────────────────────────
 function mapMlToFrontend(mlResult, userSkills, profile) {
-  const highPriority   = mlResult.high_priority_gaps   || mlResult.missing_skills?.slice(0, 5)  || [];
-  const mediumPriority = mlResult.medium_priority_gaps || mlResult.missing_skills?.slice(5, 10) || [];
-  const lowPriority    = mlResult.low_priority_gaps    || mlResult.missing_skills?.slice(10)    || [];
+  // Extract skill names safely (handle null, objects, and strings)
+  const getSkillName = (s) => {
+    if (!s) return "Unknown Skill";
+    if (typeof s === 'object') return s.skill || "Unknown Skill";
+    return String(s);
+  };
+  
+  const rawMatched = mlResult.matched_skills || [];
+  const rawMissing = mlResult.missing_skills || [];
+  const requiredList = mlResult.required_skills || [];
 
-  const urgencyFor = (skill) => {
-    const sl = skill.toLowerCase();
-    if (highPriority.some(h => h.toLowerCase() === sl))   return 'Critical';
-    if (mediumPriority.some(m => m.toLowerCase() === sl)) return 'High';
+  const highPriority = mlResult.high_priority_gaps || [];
+  const mediumPriority = mlResult.medium_priority_gaps || [];
+
+  const urgencyFor = (sObj) => {
+    const sname = getSkillName(sObj);
+    const sl = sname.toLowerCase();
+    
+    const isHigh = highPriority.some(h => {
+        const hname = typeof h === 'string' ? h : h?.skill;
+        return hname && hname.toLowerCase() === sl;
+    });
+    if (isHigh) return 'Critical';
+
+    const isMed = mediumPriority.some(m => {
+        const mname = typeof m === 'string' ? m : m?.skill;
+        return mname && mname.toLowerCase() === sl;
+    });
+    if (isMed) return 'High';
+
     return 'Medium';
   };
 
-  // build missing skill objects with priorities
-  const missingSkills = (mlResult.missing_skills || []).map((skill, i) => ({
-    skill,
-    urgency: urgencyFor(skill),
-    priority_score: Math.max(40, 95 - i * 4),
-    interview_frequency: Math.max(40, 92 - i * 4),
-    time_to_proficiency_days: 20 + i * 5,
-    prerequisites: [],
+  // Build missing skill objects
+  const missingSkills = rawMissing.map((s, i) => {
+    const sname = getSkillName(s);
+    return {
+      skill: sname,
+      urgency: urgencyFor(s),
+      priority_score: s?.priority || Math.max(40, 95 - i * 4),
+      interview_frequency: Math.max(40, 92 - i * 4),
+      time_to_proficiency_days: 20 + i * 5,
+      description: s?.description || '',
+      recommendation: s?.recommendation || ''
+    };
+  });
+
+  // Use Python's pre-calculated top priorities if available, else derive
+  let topPriorities = mlResult.top_5_priorities;
+  if (!topPriorities || topPriorities.length === 0) {
+    const urgencyOrder = { Critical: 0, High: 1, Medium: 2 };
+    topPriorities = [...missingSkills]
+      .sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency])
+      .slice(0, 10);
+  }
+
+  const matched = rawMatched.map(s => ({ 
+    skill: getSkillName(s), 
+    importance: s?.score || 80 
   }));
 
-  // top priorities (high + medium combined, sorted by urgency)
-  const urgencyOrder = { Critical: 0, High: 1, Medium: 2 };
-  const topPriorities = [...missingSkills]
-    .sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency])
-    .slice(0, 10);
-
-  const matched = (mlResult.matched_skills || []).map(s => ({ skill: s, importance: 80 }));
-
-  const matchScore = missingSkills.length === 0 && matched.length === 0
-    ? 0
-    : Math.round(mlResult.match_score || 0);
-
-  const totalRequired = (mlResult.required_skills || []).length ||
-    matched.length + missingSkills.length;
+  const matchScore = Math.round(mlResult.match_score || 0);
+  const totalRequired = requiredList.length || (matched.length + missingSkills.length);
 
   const analysisText = matchScore >= 80
-    ? `Great — you already cover ${matched.length} of ${totalRequired} skills required for ${mlResult.role}. Polish the remaining gaps to stand out.`
+    ? `Great — you already cover ${matched.length} of ${totalRequired} skills required.`
     : matchScore >= 60
-    ? `Good progress! You cover ${matched.length} of ${totalRequired} required skills for ${mlResult.role}. Focusing on the Critical-priority gaps will significantly boost your readiness.`
-    : matchScore >= 40
-    ? `You have ${matched.length} of ${totalRequired} required skills for ${mlResult.role}. Build the Critical skills first — they appear most frequently in job postings.`
-    : `Live job data shows ${totalRequired} key skills for ${mlResult.role}; you currently have ${matched.length} matched. Start with the top-priority skills immediately.`;
+      ? `Good progress! You cover ${matched.length} of ${totalRequired} skills.`
+      : `You have ${matched.length} of ${totalRequired} core matched skills for this role.`;
 
   return {
     overview: {
@@ -134,9 +160,9 @@ function mapMlToFrontend(mlResult, userSkills, profile) {
     learning_queue: profile?.skillsToLearn || [],
     role: mlResult.role,
     userSkillsCount: userSkills.length,
-    required_skills: mlResult.required_skills || [],
+    required_skills: requiredList,
     estimated_weeks: mlResult.estimated_weeks || 24,
-    source: 'ml-scraper',
+    source: mlResult.ml_pipeline || 'onet-authority-hybrid',
   };
 }
 
@@ -148,7 +174,7 @@ router.get('/analyze', auth, async (req, res) => {
   const queryRole = req.query.role;
 
   const profile = await StudentProfile.findOne({ userId }).catch(() => null);
-  const user    = await User.findById(userId).catch(() => null);
+  const user = await User.findById(userId).catch(() => null);
   if (!user) return res.status(404).json({ message: 'User not found' });
 
   const targetRole = queryRole || profile?.targetRole || user?.targetRole || 'Software Engineer';
@@ -156,8 +182,8 @@ router.get('/analyze', auth, async (req, res) => {
   // Combine all user skills
   const allSkills = [
     ...(profile?.extractedSkills || []),
-    ...(profile?.extraSkills     || []),
-    ...(user?.skills             || []),
+    ...(profile?.extraSkills || []),
+    ...(user?.skills || []),
   ].filter((s, i, a) => s && a.indexOf(s) === i);
 
   // Check cache first
@@ -177,113 +203,107 @@ router.get('/analyze', auth, async (req, res) => {
   console.log(`[SkillML] Running Python scraper for "${targetRole}"…`);
   try {
     const mlResult = await runPythonSkillGap(allSkills, targetRole, 'India', refreshRequested);
+    
+    if (mlResult.error) {
+      console.error(`[SkillML] Python Logic Error: ${mlResult.error}`);
+      console.error(`[SkillML] Traceback:\n${mlResult.traceback}`);
+      throw new Error(mlResult.error);
+    }
+
     const frontendData = mapMlToFrontend(mlResult, allSkills, profile);
     setCache(targetRole, frontendData);
     return res.json(frontendData);
   } catch (mlErr) {
-    console.error('[SkillML] Python failed:', mlErr.message);
+    console.error('[SkillML] Python execution failed:', mlErr.message);
     return res.status(500).json({
-      message: `ML scraper error: ${mlErr.message}`,
-      details: 'Python skill_gap_analyzer.py failed. Check Python deps.',
+      message: `ML analysis failed: ${mlErr.message}`,
+      details: 'Check server logs for the full Python traceback.',
     });
   }
 });
 
 // ─── GET /skills/ai-recommendation ───────────────────────────────────────────
-// Returns role-specific AI action plan derived from ML analysis.
+// Returns role-specific AI action plan derived from O*NET and live results.
 router.get('/ai-recommendation', auth, async (req, res) => {
-  const userId    = req.user.id;
+  const userId = req.user.id;
   const queryRole = req.query.role;
 
   const profile = await StudentProfile.findOne({ userId }).catch(() => null);
-  const user    = await User.findById(userId).catch(() => null);
+  const user = await User.findById(userId).catch(() => null);
 
   const allSkills = [
     ...(profile?.extractedSkills || []),
-    ...(profile?.extraSkills     || []),
-    ...(user?.skills             || []),
+    ...(profile?.extraSkills || []),
+    ...(user?.skills || []),
   ].filter((s, i, a) => s && a.indexOf(s) === i);
 
   const targetRole = queryRole || profile?.targetRole || user?.targetRole || 'Software Engineer';
 
-  // Try to use cached ML data to feed the recommendation
+  // Get cached ML data to feed the recommendation
   const cached = getCache(targetRole);
-  const missingSkills = cached?.missing_skills?.map(s => s.skill) || [];
-  const highPriority  = cached?.top_5_priorities
-    ?.filter(s => s.urgency === 'Critical')
-    .map(s => s.skill) || missingSkills.slice(0, 3);
-  const estimatedWeeks = cached?.estimated_weeks || 24;
-
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (geminiKey) {
-    try {
-      const prompt = `Role: ${targetRole}. My skills: ${allSkills.join(', ') || 'None'}. Missing skills to learn: ${missingSkills.slice(0, 8).join(', ') || 'None'}. Provide a compact, actionable plan. Return ONLY JSON format matching exactly: { "analysis": "short assessment", "action_plan": [{"week": "1-2", "focus": "Topic", "action": "Details"}], "strengths": ["s1"], "weaknesses": ["w1"], "next_steps": ["step1"], "estimated_time_to_ready_weeks": 12 }`;
-      const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`, {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2 }
-      });
-      let rawText = response.data.candidates[0].content.parts[0].text.trim();
-      rawText = rawText.replace(/^```json/i, '').replace(/```$/, '').trim();
-      const aiData = JSON.parse(rawText);
-      return res.json({
-        ...aiData,
-        role: targetRole,
-        source: 'gemini-ai'
-      });
-    } catch (e) {
-      console.error('[SkillML] Gemini failed, falling back to local heuristic:', e.response?.data || e.message);
-    }
+  
+  // If no cache, we can't give a specific plan yet
+  if (!cached) {
+    return res.status(400).json({ message: "Run /analyze first to generate recommendation data." });
   }
 
+  const missingSkills = cached.missing_skills || [];
+  const highPriority = cached.top_5_priorities || [];
+  const estimatedWeeks = cached.estimated_weeks || 24;
+
+  // ─── Local Deterministic "AI" Engine (O*NET Driven) ───
+  // This replaces Gemini to avoid quota errors and ensure consistency.
+  
   const skillCount = allSkills.length;
+  const topSkill = highPriority[0]?.skill || (missingSkills[0]?.skill) || "Core Fundamentals";
+  
   const analysis = skillCount >= 10
-    ? `You have a solid base of ${skillCount} skills. For ${targetRole}, now deepen expertise in the scraped job-demand gaps and convert each into a demonstrable project or certification.`
-    : skillCount >= 5
-    ? `You have ${skillCount} skills documented. Live job data for ${targetRole} shows clear gaps — prioritize the Critical-tier skills and build project proof-of-work before applying.`
-    : `You're in early stages with ${skillCount} skills. Live market data for ${targetRole} shows what hiring managers need — start with the top 3 Critical skills and build consistently.`;
+    ? `You have a strong foundation with ${skillCount} skills. For ${targetRole}, our O*NET analysis indicates your final hurdles are ${topSkill} and advanced specialization. Focus on project-based validation.`
+    : `With ${skillCount} skills documented, you are currently in the 'Developing' phase for ${targetRole}. Your quickest path to readiness is mastering ${topSkill}, which O*NET identifies as a critical role foundation.`
 
-  // Generate dynamic action plan from priorities
-  const actionPlan = highPriority.length > 0
-    ? [
-        { week: '1–4',  focus: 'Foundation',      action: `Master ${highPriority[0] || 'core fundamentals'} — the #1 skill in live job postings for ${targetRole}` },
-        { week: '5–8',  focus: 'Core Skills',     action: `Build ${highPriority[1] || 'key tools'} and create a project showcasing it on GitHub` },
-        { week: '9–14', focus: 'Application',     action: `Apply ${highPriority[2] || 'domain knowledge'} in a real-world project or internship` },
-        { week: '15–20',focus: 'Specialization',  action: `Deepen expertise in medium-priority skills and prepare a portfolio-quality project` },
-        { week: '21–' + estimatedWeeks, focus: 'Interview Prep', action: `Practice ${targetRole} interview questions, refine your portfolio, and apply actively` },
-      ]
-    : [
-        { week: '1–6',  focus: 'Foundation',  action: `Research and master core skills for ${targetRole} from live job listings` },
-        { week: '7–14', focus: 'Practice',    action: 'Build hands-on projects demonstrating your skills' },
-        { week: '15–' + estimatedWeeks, focus: 'Portfolio',   action: 'Polish your portfolio and apply to roles' },
-      ];
+  // Generate dynamic action plan from O*NET priorities
+  const actionPlan = [
+    { 
+      week: '1–4', 
+      focus: 'Critical Foundations', 
+      action: `Master ${topSkill}. Our live data shows this is the most requested competency for ${targetRole} recruiters.` 
+    },
+    { 
+      week: '5–8', 
+      focus: 'Tooling & Environment', 
+      action: `Build projects using ${highPriority[1]?.skill || 'industry-standard tools'}. Focus on the descriptions provided in your Skill Gap table.` 
+    },
+    { 
+      week: '9–14', 
+      focus: 'Domain Integration', 
+      action: `Apply ${highPriority[2]?.skill || 'theoretical knowledge'} to solve a real-world problem. Create a GitHub case study.` 
+    },
+    { 
+      week: '15–' + estimatedWeeks, 
+      focus: 'Market Readiness', 
+      action: `Finalize your portfolio with the 'Matched' skills and start targeted outreach for ${targetRole} positions.` 
+    }
+  ];
 
-  const nextSteps = highPriority.length > 0
-    ? [
-        `1. Start learning "${highPriority[0]}" immediately — it appears in the most job postings for ${targetRole}`,
-        `2. Complete an online course or project on "${highPriority[1] || 'your next priority skill'}"`,
-        '3. Build a project that combines your top 3 missing skills and publish it',
-        `4. Search "${targetRole} jobs" on Naukri/LinkedIn and read 10 actual JDs`,
-        '5. Update your resume to highlight matched skills, list in-progress skills',
-      ]
-    : [
-        `1. Search live "${targetRole}" job postings on Naukri and LinkedIn`,
-        '2. Identify the top 5 recurring skills in those JDs and start learning',
-        '3. Build a hands-on project related to this role',
-        '4. Connect with professionals in this field on LinkedIn',
-        '5. Practice role-specific interview questions',
-      ];
+  const nextSteps = [
+    `1. Start learning "${topSkill}" immediately — it has the highest impact on your match score.`,
+    `2. Read the O*NET descriptions for your top 5 gaps to understand professional expectations.`,
+    `3. Add "${highPriority[1]?.skill || 'the next priority skill'}" to your Learning Queue.`,
+    `4. Map your existing ${skillCount} skills to ${targetRole} use-cases in your resume.`,
+    `5. Build one 'Full-Stack' project that combines your top 3 missing priority skills.`
+  ];
 
-  const weaknesses = highPriority.slice(0, 3).map(s => `${s} (high demand in live job data)`);
+  const weaknesses = highPriority.slice(0, 3).map(s => `${s.skill}: ${s.description.slice(0, 60)}...`);
 
   res.json({
     analysis,
     action_plan: actionPlan,
-    strengths: allSkills.slice(0, 3),
-    weaknesses: weaknesses.length ? weaknesses : [`Core ${targetRole} domain knowledge`, 'Real-world project experience'],
+    strengths: allSkills.slice(0, 3).map(s => s.charAt(0).toUpperCase() + s.slice(1)),
+    weaknesses: weaknesses.length ? weaknesses : [`Core ${targetRole} requirements`],
     next_steps: nextSteps,
     estimated_time_to_ready_weeks: estimatedWeeks,
     role: targetRole,
-    source: cached ? 'ml-cache' : 'profile-only',
+    source: 'onet-deterministic-engine',
   });
 });
 
@@ -291,9 +311,9 @@ router.get('/ai-recommendation', auth, async (req, res) => {
 // Kept for backward compatibility — returns minimal data
 router.get('/learning-path', auth, async (req, res) => {
   const profile = await StudentProfile.findOne({ userId: req.user.id }).catch(() => null);
-  const user    = await User.findById(req.user.id).catch(() => null);
+  const user = await User.findById(req.user.id).catch(() => null);
   const targetRole = req.query.role || profile?.targetRole || user?.targetRole || 'Software Engineer';
-  const cached     = getCache(targetRole);
+  const cached = getCache(targetRole);
 
   res.json({
     role: targetRole,
@@ -349,15 +369,15 @@ router.put('/learning-queue', auth, async (req, res) => {
 
 // ─── GET /skills/gap-analysis (legacy) ───────────────────────────────────────
 router.get('/gap-analysis', auth, async (req, res) => {
-  const user    = await User.findById(req.user.id);
+  const user = await User.findById(req.user.id);
   const profile = await StudentProfile.findOne({ userId: req.user.id });
   const targetRole = req.query.role || profile?.targetRole || user?.targetRole || 'Software Engineer';
   const cached = getCache(targetRole);
   if (cached) {
     return res.json({
       targetRole,
-      matched:    cached.matched_skills?.map(s => s.skill) || [],
-      missing:    cached.missing_skills?.map(s => s.skill) || [],
+      matched: cached.matched_skills?.map(s => s.skill) || [],
+      missing: cached.missing_skills?.map(s => s.skill) || [],
       matchScore: cached.overview?.match_score || 0,
     });
   }

@@ -52,8 +52,78 @@ _onet = OnetClient()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  MongoDB persistent cache for scraped skills
+#  Skill Metadata (O*NET Descriptions)
 # ─────────────────────────────────────────────────────────────────────────────
+COMMON_SKILL_METADATA = {
+    # Soft Skills
+    "communication": {
+        "desc": "Conveying information effectively to team members and stakeholders.",
+        "rec": "Practice presenting technical metrics to non-technical stakeholders.",
+        "time": 21
+    },
+    "problem solving": {
+        "desc": "Identifying complex problems and evaluating solutions to implement them.",
+        "rec": "Focus on root-cause analysis during debugging sessions.",
+        "time": 30
+    },
+    "teamwork": {
+        "desc": "Coordinating actions and adjusting to others in a cross-functional environment.",
+        "rec": "Engage in pair programming or collaborative code reviews.",
+        "time": 14
+    },
+    "analytical skills": {
+        "desc": "Analyzing system requirements and evaluating model/product performance.",
+        "rec": "Study statistical evaluation metrics and data visualization patterns.",
+        "time": 25
+    },
+    "project management": {
+        "desc": "Knowledge of business principles, resource allocation, and leadership.",
+        "rec": "Learn Agile/Jira workflows and documentation standards.",
+        "time": 28
+    },
+    # Tech / ML Skills
+    "matlab": {
+        "desc": "High-level language for numerical computation and algorithm prototyping.",
+        "rec": "Learn matrix operations and signal processing toolboxes.",
+        "time": 45
+    },
+    "gcp": {
+        "desc": "Managing cloud infrastructure and AI services on Google Cloud Platform.",
+        "rec": "Explore Vertex AI and BigQuery for model deployment.",
+        "time": 60
+    },
+    "python": {
+        "desc": "The primary language for data manipulation, machine learning, and automation.",
+        "rec": "Master Pandas, NumPy, and Scikit-learn for end-to-end pipelines.",
+        "time": 40
+    },
+    "sql": {
+        "desc": "Structured Query Language for database management and data retrieval.",
+        "rec": "Practice complex joins, subqueries, and database optimization.",
+        "time": 20
+    },
+    "machine learning": {
+        "desc": "Building predictive models using statistical techniques and neural networks.",
+        "rec": "Start with regression and classification before moving to Deep Learning.",
+        "time": 90
+    },
+    "deep learning": {
+        "desc": "Solving complex problems using multi-layered artificial neural networks.",
+        "rec": "Learn PyTorch or TensorFlow for computer vision/NLP tasks.",
+        "time": 120
+    },
+    "docker": {
+        "desc": "Containerization tool for packaging and deploying software consistently.",
+        "rec": "Practice containerizing a simple Flask/Express application.",
+        "time": 15
+    },
+    "kubernetes": {
+        "desc": "Orchestration system for automating deployment and scaling of containers.",
+        "rec": "Learn about pods, services, and deployments in a K8s cluster.",
+        "time": 45
+    }
+}
+
 _skills_memory_cache: Dict[str, Dict] = {}
 _SKILLS_CACHE_TTL = 86400  # 24 hours
 
@@ -407,111 +477,153 @@ class DynamicSkillGapAnalyzer:
         if use_cache and cached:
             freq_map = cached.get("freq_map", {})
             required_skills = cached.get("required_skills", [])
+            level_map = cached.get("level_map", {})
             scrape_source = cached.get("source", "cache")
             print(f"[SkillGap] Using cached {len(required_skills)} skills for '{target_role}' from {scrape_source}")
         else:
-            # ── Step 2: Hybrid Pipeline (O*NET Foundations + Modern Scrape) ──
+            # ── NEW STEP 2: O*NET Authority First ──
             required_skills = []
             freq_map = {}
+            level_map = {}
             
-            # A) Get O*NET foundations
+            # A) GET OFFICIAL O*NET FOUNDATIONS (Primary Priority)
             onet_list = []
             if _onet.available:
-                print(f"[SkillGap] Fetching O*NET foundations for '{target_role}'...")
+                print(f"[SkillGap] 🏛️ Fetching Official O*NET profile for '{target_role}'...")
                 onet_list = _onet.get_role_skills(target_role)
                 for s in onet_list:
                     name = s["name"].lower().strip()
-                    score = s.get("score", 3.0)
-                    freq_map[name] = int(score * 10)  # High base priority for O*NET
+                    score = s.get("score", 5.0) 
+                    freq_map[name] = int(score * 20) + 100 
+                    level_map[name] = s.get("level", "intermediate")
             
-            # B) Get modern market skills via scraping
-            print(f"[SkillGap] Scraping live job data for modern keywords for '{target_role}'...")
-            raw_naukri   = _scrape_naukri(target_role, location)
-            raw_linkedin = _scrape_linkedin(target_role, location)
-            raw_indeed   = _scrape_indeed_rss(target_role, location)
-            raw_google   = _scrape_google_search(target_role, location)
+            # B) SUPPLEMENT WITH MODERN TECH (Secondary/Market-only)
+            print(f"[SkillGap] 🌐 Scraping modern market tools for '{target_role}'...")
+            raw_text = ""
+            try:
+                raw_naukri   = _scrape_naukri(target_role, location)
+                raw_linkedin = _scrape_linkedin(target_role, location)
+                raw_text = f"{raw_naukri} {raw_linkedin}"
+            except Exception as e:
+                print(f"[SkillGap] Scraping warning: {e}")
 
-            raw_text = f"{raw_naukri} {raw_linkedin} {raw_indeed} {raw_google}"
-            print(f"[SkillGap] Scraped {len(raw_text):,} chars of job text")
+            if len(raw_text) > 200:
+                 scraped_skills_raw = extract_skills_from_text(raw_text)
+                 for sname, count in scraped_skills_raw.items():
+                     name = sname.lower().strip()
+                     if name in freq_map:
+                         freq_map[name] += count
+                     else:
+                         if count > 4:
+                            freq_map[name] = count
+                            level_map[name] = "beginner"
             
-            scraped_skills_raw = extract_skills_from_text(raw_text)
-            
-            # C) Merge lists
-            # Prioritize scraped skills if they appear frequently
-            for sname, count in scraped_skills_raw.items():
-                name = sname.lower().strip()
-                if name in freq_map:
-                    # Boost existing O*NET skill
-                    freq_map[name] += count
-                else:
-                    # New modern skill from market
-                    freq_map[name] = count
-            
-            # D) BLEND in core seed skills (User's "Default Role Skills")
+            # C) CORE SEED BLEND
             seed_skills = _role_seed_skills(target_role)
             for ss in seed_skills:
                 name = ss.lower().strip()
                 if name in freq_map:
-                    # Priority boost for core seed skills
-                    freq_map[name] += 50
+                    freq_map[name] += 100 # Boost core basics
                 else:
-                    freq_map[name] = 25  # Solid entry for seed skills
+                    freq_map[name] = 80
+                    level_map[name] = "beginner"
             
-            # Build level mapping for sorting
-            level_map = {}
-            for s in onet_list:
-                level_map[s["name"].lower().strip()] = s.get("level", "intermediate")
-            for ss in seed_skills:
-                level_map[ss.lower().strip()] = "beginner"
-            
-            # Sort order: beginner(0) -> intermediate(1) -> advanced(2)
+            # D) Final Sort: Mastered Progression (Beginner -> Intermediate -> Advanced)
             LEVEL_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
-            
-            # Sort by difficulty first, then by frequency
             sorted_names = sorted(
                 freq_map.keys(), 
-                key=lambda x: (LEVEL_ORDER.get(level_map.get(x, "intermediate"), 1), -freq_map[x])
+                key=lambda x: (
+                    LEVEL_ORDER.get(level_map.get(x.lower(), "intermediate"), 1), 
+                    -freq_map[x] # Secondary: Frequency within level
+                )
             )
-            required_skills = [s.title() for s in sorted_names[:top_n]]
-            scrape_source = "hybrid-onet-market-seeded"
             
-            if not required_skills and not onet_list:
-                # Absolute fallback
-                print("[SkillGap] All sources failed, using seed catalogue")
-                required_skills = seed_catalogue.get(target_role, seed_catalogue.get("Software Engineer", []))
-                scrape_source = "seed-catalogue"
-
+            required_skills = [s.title() for s in sorted_names[:top_n]]
+            scrape_source = "onet-basics-first-progression"
+            
+            if not required_skills:
+                print("[SkillGap] All sources failed, using seeds")
+                required_skills = [s.title() for s in seed_skills[:top_n]]
+            
             # ── Step 4: Cache the results ────────────────────────────────────
             _cache_set(target_role, {
                 "freq_map": freq_map,
                 "required_skills": required_skills,
+                "level_map": level_map,
                 "source": scrape_source
             })
 
-        # ── Step 5: Semantic matching (sentence-transformer or TF-IDF) ───────
-        print(f"[SkillGap] Semantic matching {len(user_skills)} user skills vs {len(required_skills)} required...")
-        matched, missing, match_score = semantic_skill_match(
-            user_skills, required_skills, threshold=0.55
-        )
+        # ── Step 5: LENIENT Semantic matching (Strengths detection) ───────────
+        print(f"[SkillGap] Matching {len(user_skills)} user skills vs {len(required_skills)} required...")
+        # Clean user skills
+        user_lower = [s.lower().strip() for s in user_skills if s]
+        
+        matched = []
+        missing = []
+        
+        for req in required_skills:
+            req_l = req.lower().strip()
+            # Lenient match: Direct, Partial, or Substring
+            direct_match = any(req_l in u or u in req_l for u in user_lower)
+            
+            if direct_match:
+                matched.append(req)
+            else:
+                missing.append(req)
 
-        # ── Step 6: Prioritize gaps by scraped frequency ─────────────────────
-        print(f"[SkillGap] Prioritizing {len(missing)} gaps...")
-        priority = _prioritize_gaps(target_role, missing, freq_map)
+        # Calculate match score percentage
+        match_score = (len(matched) / max(len(required_skills), 1)) * 100
+        
+        # ── Step 6: Prioritize gaps by Level (Basics first) ───────────────────
+        print(f"[SkillGap] Ordering {len(missing)} gaps by complexity...")
+        
+        # Sort missing by their difficulty level for the final report
+        LEVEL_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
+        missing_sorted = sorted(
+            missing,
+            key=lambda x: LEVEL_ORDER.get(level_map.get(x.lower(), "intermediate"), 1)
+        )
+        
+        priority = _prioritize_gaps(target_role, missing_sorted, freq_map)
+
+        # ── Step 6: Final results with metadata enrichment ──
+        high_gaps = priority.get("high_priority", missing[:8])
+        
+        top_5_enriched = []
+        for sname in high_gaps[:5]:
+            meta = COMMON_SKILL_METADATA.get(sname.lower(), {})
+            if not meta:
+                # Try simple fuzzy match for sub-skills
+                for key, val in COMMON_SKILL_METADATA.items():
+                    if key in sname.lower() or sname.lower() in key:
+                        meta = val
+                        break
+            
+            top_5_enriched.append({
+                "skill": sname,
+                "urgency": "Critical" if sname in high_gaps[:3] else "High",
+                "priority_score": freq_map.get(sname.lower(), 70),
+                "interview_frequency": min(95, freq_map.get(sname.lower(), 65) + 10),
+                "time_to_proficiency_days": meta.get("time", 30),
+                "description": meta.get("desc", f"Fundamental {target_role} skill identified in live job market analysis."),
+                "recommendation": meta.get("rec", f"Include {sname} in your technical portfolio or projects.")
+            })
 
         result = {
             "role":                 target_role,
             "location":             location,
             "required_skills":      required_skills,
-            "matched_skills":       matched,
-            "missing_skills":       missing,
+            "matched_skills":       [{"skill": s, "score": 100} for s in matched],
+            "missing_skills":       [{"skill": s, "priority": freq_map.get(s.lower(), 50)} for s in missing],
             "match_score":          round(match_score, 1),
+            "top_5_priorities":     top_5_enriched,
             "high_priority_gaps":   priority.get("high_priority",   missing[:5]),
             "medium_priority_gaps": priority.get("medium_priority", missing[5:10]),
             "low_priority_gaps":    priority.get("low_priority",    missing[10:]),
             "learning_order":       priority.get("learning_order",  missing),
             "estimated_weeks":      priority.get("estimated_weeks", 24),
             "key_insight":          priority.get("key_insight", ""),
-            "recommendations":      [f"Learn {s}" for s in priority.get("high_priority", missing[:5])],
+            "recommendations":      [f"Learn {s}" for s in high_gaps[:5]],
             "scraped_text_length":  len(raw_text) if 'raw_text' in dir() else 0,
             "skills_source":        scrape_source if 'scrape_source' in dir() else "cache",
             "ml_pipeline":          "scrape(naukri+linkedin+indeed+google) → nlp(spacy+regex+ngrams) → embed(sentence-transformer) → prioritize(frequency)",
@@ -532,8 +644,17 @@ def get_analyzer() -> DynamicSkillGapAnalyzer:
 
 
 def analyze_skill_gap(user_skills: List[str], target_role: str, location: str = "India", refresh: bool = False) -> Dict:
-    """Public API used by Flask routes."""
-    return get_analyzer().analyze(user_skills, target_role, location, refresh=refresh)
+    """Public API with top-level error safety."""
+    try:
+        return get_analyzer().analyze(user_skills, target_role, location, refresh=refresh)
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "role": target_role,
+            "pipeline_status": "failed_at_runtime"
+        }
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────

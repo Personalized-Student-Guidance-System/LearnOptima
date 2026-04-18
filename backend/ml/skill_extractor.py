@@ -130,6 +130,13 @@ _STOP_PHRASES: Set[str] = {
     "process", "system", "tool", "technology", "technique",
     "level", "type", "kind", "range", "scope", "scale",
     "opportunity", "growth", "culture", "environment", "impact",
+    # ── Job market noise (Companies/Websites) ──
+    "ebay", "srinsoft", "crossing hurdles", "naukri", "linkedin", "indeed",
+    "glassdoor", "monster", "shine", "scoutit", "fedex", "wipro", "tcs",
+    "infosys", "cognizant", "accenture", "deloitte", "capgemini", "hcl",
+    "tech mahindra", "adobe", "google", "microsoft", "amazon", "apple",
+    "meta", "netflix", "uber", "ola", "zomato", "swiggy", "flipkart",
+    "paytm", "byjus", "unacademy", "upgrad", "simplilearn",
 }
 
 # Individual stop words — if ALL words in an n-gram are stop words, reject it
@@ -314,7 +321,8 @@ def _is_valid_skill(s: str) -> bool:
         "client", "customer", "project", "product", "salary", "benefits",
         "linkedin", "guidelines", "controls", "join", "agree", "volunteer", 
         "level", "mid-senior", "guest", "language", "done", "app", "group", "dhl",
-        "andhra", "pradesh", "company", "clear"
+        "andhra", "pradesh", "company", "clear", "ebay", "srinsoft", "hurdles",
+        "crossing", "inc", "ltd", "pvt", "limited", "naukri", "indeed", "shine"
     }
     
     words = sl.split()

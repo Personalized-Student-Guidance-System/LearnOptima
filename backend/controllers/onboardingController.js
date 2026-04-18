@@ -2,7 +2,7 @@ const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
 const { uploadToCloudinary } = require('../middleware/uploadMiddleware'); // assume exists or create later
 const mlService = require('../services/mlService');
-const resumeParser = require('../services/resumeParser');
+const { parseResumeBuffer } = require('../services/nlpResumeParser');
 const syllabusParser = require('../services/syllabusParser');
 
 const TOTAL_STEPS = 5;
@@ -121,7 +121,7 @@ async function resumeStep(req, res) {
     }
     if (req.file && req.file.buffer) {
       try {
-        const nodeResult = await resumeParser.parseResumeBuffer(req.file.buffer, req.file.mimetype);
+        const nodeResult = await parseResumeBuffer(req.file.buffer, req.file.mimetype);
         if (nodeResult) {
           if (nodeResult.skills?.length) extracted.skills = [...new Set([...extracted.skills, ...nodeResult.skills])];
           if (nodeResult.projects?.length) extracted.projects = [...new Set([...extracted.projects, ...nodeResult.projects])];

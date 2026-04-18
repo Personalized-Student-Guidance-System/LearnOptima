@@ -66,7 +66,7 @@ _FALLBACK_ROLE_SKILLS = {
     ],
 }
 
-# Skill prerequisites - skills that should be learned before others
+# Skill prerequisites - high-level map, fallback empty for unknown skills
 SKILL_PREREQUISITES = {
     'react': ['javascript', 'html', 'css'],
     'nodejs': ['javascript'],

@@ -218,12 +218,12 @@ function getRoleRecalibrationSuggestions(targetRole, readinessScore = 0, missing
     suggestedRoles: mapped.length
       ? mapped
       : [
-          {
-            role: 'Entry-Level Analyst',
-            reason: 'A narrower role can help you collect proof of work, momentum, and stronger fundamentals.',
-            nextStep: 'Pick one project-based role path and complete a portfolio piece in the next 2 weeks.',
-          },
-        ],
+        {
+          role: 'Entry-Level Analyst',
+          reason: 'A narrower role can help you collect proof of work, momentum, and stronger fundamentals.',
+          nextStep: 'Pick one project-based role path and complete a portfolio piece in the next 2 weeks.',
+        },
+      ],
   };
 }
 
@@ -344,14 +344,14 @@ async function saveBurnoutMetricsForUser(userId, payload = {}) {
 router.get('/', auth, async (req, res) => {
   try {
     const userId = req.user.id;
-    
+
     // Try to get saved metrics first
     const profile = await StudentProfile.findOne({ userId: new mongoose.Types.ObjectId(userId) });
     let metrics = profile?.burnoutMetrics;
-    
+
     if (!metrics) {
       // Fallback to study session average
-      const thirtyDaysAgo = new Date(Date.now() - 30*24*60*60*1000);
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const avgResult = await StudySession.aggregate([
         {
           $match: {
@@ -377,10 +377,10 @@ router.get('/', auth, async (req, res) => {
           }
         }
       ]);
-      
+
       const avgStudySeconds = avgResult[0]?.avgDailySeconds || 0;
       const avgStudyHours = Math.round((avgStudySeconds / 3600) * 10) / 10 || 4;
-      
+
       metrics = {
         studyHours: avgStudyHours,
         sleepHours: 7,
@@ -396,13 +396,13 @@ router.get('/', auth, async (req, res) => {
         _fromProfile: true,
       };
     }
-    
+
     // Quick rule-based riskLevel for dashboard
     let score = 0;
     if (metrics.studyHours > 8) score += 25;
     if (metrics.sleepHours < 6) score += 25;
     const level = score < 30 ? 'low' : score < 60 ? 'medium' : 'high';
-    
+
     res.json({ ...metrics, riskLevel: level, source: metrics._fromProfile ? 'saved' : 'computed' });
   } catch (err) {
     console.error(err);
@@ -443,18 +443,18 @@ router.post('/predict', auth, async (req, res) => {
       ...(profile?.extractedSkills || []),
       ...(profile?.extraSkills || []),
     ];
-    
+
     // Try ML API first
     try {
       const mlRes = await axios.post('http://localhost:5001/predict-burnout', {
         studyHours, sleepHours, socialTime, exerciseTime, deadlinePressure, academicLoad
       });
-      
+
       let level = mlRes.data.level;
       let confidence = mlRes.data.confidence || 0;
       const scoreMap = { 'Low': 25, 'Moderate': 50, 'High': 75, 'Critical': 95 };
       let score = scoreMap[level] || 50;
-      
+
       let suggestions = [];
       // Dynamic metric-specific suggestions
       if (sleepHours < 6) suggestions.push('Prioritize sleep: Aim for 7-8 hours nightly. Poor sleep multiplies burnout risk 3x.');
@@ -462,7 +462,7 @@ router.post('/predict', auth, async (req, res) => {
       if (exerciseTime < 2) suggestions.push('Add movement: 30 min daily exercise reduces stress hormones significantly.');
       if (socialTime < 1) suggestions.push('Schedule connection: 1 social interaction/day prevents isolation burnout.');
       if (deadlinePressure > 7) suggestions.push('Stress relief: Try 10-min meditation or deep breathing when pressure peaks.');
-      
+
       // Add level-based
       const levelSuggestions = {
         'Low': ['Great balance! Consider long-term goals.'],
@@ -470,7 +470,7 @@ router.post('/predict', auth, async (req, res) => {
         'High': ['Counselor check-in recommended. Quality > quantity.'],
         'Critical': ['Immediate 2-day reset. Professional help if persists.']
       };
-      suggestions = [...suggestions.slice(0,2), ...levelSuggestions[level] || []];
+      suggestions = [...suggestions.slice(0, 2), ...levelSuggestions[level] || []];
 
       let readiness = null;
       if (targetRole) {
@@ -500,12 +500,12 @@ router.post('/predict', auth, async (req, res) => {
         };
         await profile.save();
       }
-      
+
       return res.json({ score, level, suggestions, confidence, source: 'ML', coach, readiness });
     } catch (mlErr) {
       console.log('ML unavailable, rule-based');
     }
-    
+
     // Rule-based with dynamic suggestions
     let score = 0;
     if (studyHours > 8) score += 25; else if (studyHours > 6) score += 15;
@@ -522,14 +522,14 @@ router.post('/predict', auth, async (req, res) => {
     if (exerciseTime < 2) suggestions.push('Move daily: 20min walk cuts stress 40%.');
     if (socialTime < 1) suggestions.push('Connect: One call/text/day fights isolation.');
     if (deadlinePressure > 7) suggestions.push('Pressure valve: 5min breathing every 2h.');
-    
+
     const levelSugs = {
       Low: ['Balanced routine! Add variety.'],
       Moderate: ['90min cycles + breaks. Weekend reset.'],
       High: ['Counseling + time audit.'],
       Critical: ['48h reset protocol. Prof help.']
     };
-    suggestions = [...suggestions.slice(0,3), ...(levelSugs[level] || [])];
+    suggestions = [...suggestions.slice(0, 3), ...(levelSugs[level] || [])];
 
     let readiness = null;
     if (targetRole) {
@@ -559,7 +559,7 @@ router.post('/predict', auth, async (req, res) => {
       };
       await profile.save();
     }
-    
+
     res.json({ score, level, suggestions, coach, readiness, source: 'rule-based' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
@@ -691,7 +691,7 @@ router.post('/coach/message', auth, async (req, res) => {
       + '"nextQuestions": string[],'
       + '"plan": {'
       + '  "summary": string,'
-      + '  "dailyPlan": [{"day": string, "focus": string, "actions": string[]}],' 
+      + '  "dailyPlan": [{"day": string, "focus": string, "actions": string[]}],'
       + '  "redFlags": string[],'
       + '  "checkIn": string'
       + '} | null'
