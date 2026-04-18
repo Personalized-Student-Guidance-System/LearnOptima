@@ -1,5 +1,5 @@
-# Career Roadmap Fix - Dynamic Webscraping for Any Role
-Track progress for pure webscraping → latest skills/resources (no hardcode).
+# Career Roadmap Fix - O*NET + Webscraping Hybrid for Any Role
+Track progress for O*NET primary → live webscraping jobs/fallback skills (stable & dynamic).
 
 ## TODO Steps (0/6 complete)
 

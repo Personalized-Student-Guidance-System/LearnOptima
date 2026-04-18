@@ -27,19 +27,21 @@ const AVAILABLE_ROLES = [
 
 
 // Generate dynamic roadmap for any role (including custom roles) - NOW WITH REAL WEB SCRAPING
-async function generateDynamicRoadmap(role, userId, location = 'India') {
+async function generateDynamicRoadmap(role, userId, location = 'India', refresh = false) {
   try {
-    console.log(`[DynamicRoadmap] Python ML scraping for ${role}`);
+    console.log(`[DynamicRoadmap] Python ML scraping for ${role} (refresh=${refresh})`);
     
     const CACHE_TTL = 60 * 60 * 1000; // 1 hour
-    const cacheKey = `roadmap_${role.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${location.toLowerCase()}`;
+    const cacheKey = `roadmap_v5_${role.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${location.toLowerCase()}`;
     const now = Date.now();
     
     // Try cache
-    const cached = global[cacheKey];
-    if (cached && (now - cached.timestamp) < CACHE_TTL) {
-      console.log(`[DynamicRoadmap] Cache HIT: ${role}`);
-      return cached.data;
+    if (!refresh) {
+      const cached = global[cacheKey];
+      if (cached && (now - cached.timestamp) < CACHE_TTL) {
+        console.log(`[DynamicRoadmap] Cache HIT: ${role}`);
+        return cached.data;
+      }
     }
     
     // Spawn Python ML scraper (live webscraping + Claude)
@@ -48,6 +50,7 @@ async function generateDynamicRoadmap(role, userId, location = 'India') {
     
     const pythonPath = path.join(__dirname, '../ml/skill_scraper_cli.py');
     const args = [pythonPath, role, location];
+    if (refresh) args.push('--refresh');
     
     return new Promise((resolve, reject) => {
       const proc = spawn('python', args, { cwd: __dirname });
@@ -76,6 +79,11 @@ async function generateDynamicRoadmap(role, userId, location = 'India') {
           
           const roadmap = { semesters, isCustom: true, scraped: true, source: result.source };
           
+          // VISIBLE LOG FOR EVALUATION
+          console.log('\n' + '='.repeat(50));
+          console.log(`[ROADMAP SOURCE] Role: ${role} | Source: ${result.source}`);
+          console.log('='.repeat(50) + '\n');
+
           // Cache
           global[cacheKey] = { data: roadmap, timestamp: now };
           
@@ -93,15 +101,15 @@ async function generateDynamicRoadmap(role, userId, location = 'India') {
 }
 
 // Get personalized roadmap based on user's skills with scraped resources
-async function getPersonalizedRoadmap(userId, role, location, mlAnalysis = null) {
+async function getPersonalizedRoadmap(userId, role, location, mlAnalysis = null, refresh = false) {
   try {
     let baseRoadmap;
     let isCustomRole = true;
     
     // ALWAYS generate dynamic roadmap (no hardcoded fallback)
-    console.log(`[Roadmap] Generating DYNAMIC roadmap for "${role}" via Python ML scraper (${location})`);
+    console.log(`[Roadmap] Generating DYNAMIC roadmap for "${role}" via Python ML scraper (${location}) refresh=${refresh}`);
     try {
-      baseRoadmap = await generateDynamicRoadmap(role, userId, location);
+      baseRoadmap = await generateDynamicRoadmap(role, userId, location, refresh);
     } catch (scrapeErr) {
       console.error(`[Roadmap] Scraper failed for ${role}:`, scrapeErr.message);
       // Minimal fallback roadmap (6 phases matching scraper output)
@@ -123,6 +131,9 @@ async function getPersonalizedRoadmap(userId, role, location, mlAnalysis = null)
     const userSkills = [...(profile?.extractedSkills || []), ...(profile?.extraSkills || [])];
     const userSkillsLower = userSkills.map(s => s.toLowerCase());
     const mlMatchedSkills = (mlAnalysis?.matched_skills || []).map(s => String(s).toLowerCase());
+    const highPrioritySkills = new Set((mlAnalysis?.high_priority_gaps || []).map(s => String(s).toLowerCase()));
+    const mediumPrioritySkills = new Set((mlAnalysis?.medium_priority_gaps || []).map(s => String(s).toLowerCase()));
+    const missingSkills = new Set((mlAnalysis?.missing_skills || []).map(s => String(s).toLowerCase()));
     
     console.log(`[Roadmap] Building for ${role}: user has ${userSkills.length} skills (${location})`);
     
@@ -141,6 +152,30 @@ async function getPersonalizedRoadmap(userId, role, location, mlAnalysis = null)
             const hasSkillByProfile = userSkillsLower.some(s => s.includes(skillLower) || skillLower.includes(s));
             const hasSkillByMl = mlMatchedSkills.some(ms => ms.includes(skillLower) || skillLower.includes(ms));
             res.hasSkill = hasSkillByProfile || hasSkillByMl;
+
+            const isHighPriority = [...highPrioritySkills].some(s => s.includes(skillLower) || skillLower.includes(s));
+            const isMediumPriority = [...mediumPrioritySkills].some(s => s.includes(skillLower) || skillLower.includes(s));
+            const isMissing = [...missingSkills].some(s => s.includes(skillLower) || skillLower.includes(s));
+
+            res.priority = res.hasSkill
+              ? 'covered'
+              : isHighPriority
+                ? 'high'
+                : isMediumPriority
+                  ? 'medium'
+                  : isMissing
+                    ? 'low'
+                    : 'recommended';
+
+            res.recommendation = res.hasSkill
+              ? `You already have a base in ${res.skill}. Keep it visible in your profile and projects.`
+              : isHighPriority
+                ? `Prioritize ${res.skill} first for ${role}. Highlight it strongly once you build proof through projects or coursework.`
+                : isMediumPriority
+                  ? `Build ${res.skill} next and add it to your resume with a clear project/example.`
+                  : isMissing
+                    ? `Cover ${res.skill} gradually and represent it with practical work.`
+                    : `This ${res.skill} resource is useful for strengthening your ${role} profile.`;
           }
         }
       }
@@ -184,8 +219,9 @@ router.get('/personalized', auth, async (req, res) => {
       ...(profile?.extraSkills || []),
     ];
 
+    const refresh = req.query.refresh === 'true';
     const mlResult = await mlService.getSkillGap(userSkills, role);
-    const roadmap = await getPersonalizedRoadmap(userId, role, location, mlResult);
+    const roadmap = await getPersonalizedRoadmap(userId, role, location, mlResult, refresh);
     const checklist = await getOrCreateChecklist(userId, role);
 
     // Frontend expects root-level phases

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import API from '../services/api';
+import API, { startBurnoutCoach, sendBurnoutCoachMessage } from '../services/api';
 import { Ic, Spinner } from '../design/ui';
 import { G, ICONS } from '../design/tokens';
 
@@ -21,6 +21,13 @@ const readinessTone = {
   stretch: { color: G.amber, bg: G.amberBg, border: G.amberBd, label: 'Stretch goal' },
   recalibrate: { color: G.red, bg: G.redBg, border: G.redBd, label: 'Recalibrate' },
   'no-target-role': { color: G.text2, bg: G.bg2, border: G.border, label: 'Profile needed' },
+};
+
+const providerTone = {
+  gemini: { label: 'Provider: Gemini', color: G.green, bg: G.greenBg, border: G.greenBd },
+  fallback: { label: 'Provider: Fallback', color: G.amber, bg: G.amberBg, border: G.amberBd },
+  'fallback-unavailable': { label: 'Provider: Fallback only', color: G.amber, bg: G.amberBg, border: G.amberBd },
+  unknown: { label: 'Provider: Unknown', color: G.text2, bg: G.bg2, border: G.border },
 };
 
 const helperText = {
@@ -70,6 +77,8 @@ export default function BurnoutPredictor() {
   const [coachSending, setCoachSending] = useState(false);
   const [coachInput, setCoachInput] = useState('');
 
+  const coachProviderTone = providerTone[coach.provider] || providerTone.unknown;
+
   useEffect(() => {
     const token = getAuthToken();
     if (token) {
@@ -91,7 +100,7 @@ export default function BurnoutPredictor() {
     if (!token) return;
 
     setCoachLoading(true);
-    API.post('/burnout/coach/start', {})
+    startBurnoutCoach()
       .then((res) => {
         setCoach({
           threadId: res.data.threadId,
@@ -114,7 +123,7 @@ export default function BurnoutPredictor() {
 
     setCoachSending(true);
     try {
-      const res = await API.post('/burnout/coach/message', { message: msg });
+      const res = await sendBurnoutCoachMessage(msg);
       setCoachInput('');
       setCoach((prev) => ({
         ...prev,
@@ -125,7 +134,13 @@ export default function BurnoutPredictor() {
         provider: res.data.provider || prev.provider || 'gemini',
       }));
     } catch (e) {
-      console.error('Coach message failed:', e.response?.data || e.message);
+      console.error('Coach message failed:', {
+        status: e.response?.status,
+        data: e.response?.data,
+        requestUrl: e.config?.url,
+        baseURL: e.config?.baseURL,
+        message: e.message,
+      });
     } finally {
       setCoachSending(false);
     }
@@ -368,10 +383,38 @@ export default function BurnoutPredictor() {
 
             <div style={{ padding: '8px 16px', borderBottom: `1px solid ${G.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, background: G.bg2 }}>
               <div style={{ fontSize: 11, color: G.text2 }}>
-                {coach.provider === 'gemini' ? 'Connected to Gemini agent' : 'Checking Gemini connection…'}
+                {coach.provider === 'gemini'
+                  ? 'Connected to Gemini agent'
+                  : coach.provider === 'fallback'
+                    ? 'Gemini failed — fallback coach is active'
+                    : coach.provider === 'fallback-unavailable'
+                      ? 'Gemini not configured — fallback mode only'
+                      : 'Checking Gemini connection…'}
               </div>
               <span style={{ fontSize: 11, fontWeight: 700, color: coachSending ? G.blue : (coach.provider === 'gemini' ? G.green : G.text2) }}>
-                {coachSending ? 'Gemini is thinking…' : (coach.provider === 'gemini' ? 'LIVE AI' : 'INIT')}
+                {coachSending ? 'Coach is thinking…' : (coach.provider === 'gemini' ? 'LIVE AI' : 'READY')}
+              </span>
+            </div>
+
+            <div style={{ padding: '10px 16px', borderBottom: `1px solid ${G.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 10px',
+                borderRadius: 999,
+                background: coachProviderTone.bg,
+                border: `1px solid ${coachProviderTone.border}`,
+                color: coachProviderTone.color,
+                fontSize: 11,
+                fontWeight: 700,
+              }}>
+                {coachProviderTone.label}
+              </span>
+              <span style={{ fontSize: 11, color: G.text2 }}>
+                {coach.provider === 'fallback' || coach.provider === 'fallback-unavailable'
+                  ? 'Gemini may be unavailable, rate-limited, or misconfigured.'
+                  : 'Gemini responses are live when available.'}
               </span>
             </div>
 
@@ -723,6 +766,8 @@ export default function BurnoutPredictor() {
     </div>
   );
 }
+
+
 
 
 

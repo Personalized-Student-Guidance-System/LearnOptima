@@ -165,15 +165,27 @@ def parse_description_with_gemini(
 ) -> Dict[str, object]:
     """
     Parse a description into structured metadata using Gemini.
-    Falls back to heuristic extraction if the API key is missing or the call fails.
+    Passes a much smaller prompt (first 1500 chars) to avoid quota usage.
+    Falls back to heuristics/NLP if the call fails.
     """
+    api_key = api_key or os.environ.get("GEMINI_API_KEY", "").strip()
+
+    # Pre-compute the fallback so we have it if Gemini fails
+    try:
+        from skill_extractor import extract_skills_from_text
+        freq_map = extract_skills_from_text(description, top_n=5)
+        skills = list(freq_map.keys())
+        if not skills:
+            skills = _extract_top_skills_heuristic(description)
+    except ImportError:
+        skills = _extract_top_skills_heuristic(description)
+
     fallback = {
         "deadline": _extract_deadline_heuristic(description),
-        "skills_required": _extract_top_skills_heuristic(description),
+        "skills_required": skills[:5],
         "resource_type": _guess_resource_type(source, title, description),
     }
 
-    api_key = api_key or os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         return fallback
 
@@ -187,7 +199,7 @@ def parse_description_with_gemini(
         "resource_type must be exactly one of Job, Course, or Article.\n\n"
         f"Source: {source}\n"
         f"Title: {title}\n"
-        f"Description:\n{description[:8000]}"
+        f"Description:\n{description[:1500]}"
     )
 
     try:
@@ -202,7 +214,7 @@ def parse_description_with_gemini(
                     "response_mime_type": "application/json",
                 },
             },
-            timeout=30,
+            timeout=15,
         )
         response.raise_for_status()
         payload = response.json()
@@ -212,19 +224,21 @@ def parse_description_with_gemini(
         parsed = json.loads(text)
 
         deadline = parsed.get("deadline") or fallback["deadline"]
-        skills = parsed.get("skills_required") or fallback["skills_required"]
+        parsed_skills = parsed.get("skills_required") or fallback["skills_required"]
         resource_type = parsed.get("resource_type") or fallback["resource_type"]
 
-        if not isinstance(skills, list):
-            skills = fallback["skills_required"]
+        if not isinstance(parsed_skills, list):
+            parsed_skills = fallback["skills_required"]
 
         return {
             "deadline": deadline if isinstance(deadline, str) else fallback["deadline"],
-            "skills_required": [str(s).strip() for s in skills if str(s).strip()][:5],
+            "skills_required": [str(s).strip() for s in parsed_skills if str(s).strip()][:5],
             "resource_type": str(resource_type).strip() if resource_type else fallback["resource_type"],
         }
-    except Exception:
+    except Exception as e:
+        print(f"[CareerScraper] Gemini fallback: {e}")
         return fallback
+
 
 
 class CareerAggregatorScraper:

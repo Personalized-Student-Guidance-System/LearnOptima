@@ -27,6 +27,14 @@ const TIER_STYLE = {
   advanced:     { bg: G.amber + '15',  color: G.amber, label: 'Advanced'     },
 };
 
+const PRIORITY_STYLE = {
+  high:        { bg: '#fef2f2', color: '#dc2626', label: 'High Priority' },
+  medium:      { bg: '#fffbeb', color: '#b45309', label: 'Medium Priority' },
+  low:         { bg: '#eff6ff', color: '#2563eb', label: 'Build Soon' },
+  recommended: { bg: '#f3f4f6', color: '#4b5563', label: 'Recommended' },
+  covered:     { bg: '#dcfce7', color: '#15803d', label: 'Already Covered' },
+};
+
 // ── Resource chip ─────────────────────────────────────────────────────────────
 function ResourceChip({ resource }) {
   return (
@@ -67,6 +75,9 @@ function TaskRow({ item, phaseKey, resourceData, checked, saving, onToggle }) {
   const tierStyle = TIER_STYLE[tier] || TIER_STYLE.beginner;
   // ML-annotated: backend detected this skill in user's profile via semantic similarity
   const hasSkill  = resourceData?.hasSkill || false;
+  const priority  = resourceData?.priority || (hasSkill ? 'covered' : 'recommended');
+  const priorityStyle = PRIORITY_STYLE[priority] || PRIORITY_STYLE.recommended;
+  const recommendation = resourceData?.recommendation || '';
 
   return (
     <div style={{
@@ -124,6 +135,12 @@ function TaskRow({ item, phaseKey, resourceData, checked, saving, onToggle }) {
             <>
               <span style={{
                 fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 3,
+                background: priorityStyle.bg, color: priorityStyle.color,
+              }}>
+                {priorityStyle.label}
+              </span>
+              <span style={{
+                fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 3,
                 background: tierStyle.bg, color: tierStyle.color,
               }}>
                 {tierStyle.label}
@@ -143,6 +160,19 @@ function TaskRow({ item, phaseKey, resourceData, checked, saving, onToggle }) {
         <div style={{
           padding: '6px 12px', borderTop: `1px solid ${G.border}`, background: G.bg2,
         }}>
+          {recommendation && (
+            <div style={{
+              marginBottom: 8,
+              fontSize: 11,
+              color: priorityStyle.color,
+              background: priorityStyle.bg,
+              border: `1px solid ${priorityStyle.color}22`,
+              borderRadius: 6,
+              padding: '6px 8px',
+            }}>
+              {recommendation}
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
             {resources.map((res, idx) => (
               <ResourceChip key={idx} resource={res} />

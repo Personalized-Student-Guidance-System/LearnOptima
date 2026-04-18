@@ -1,23 +1,19 @@
 """
-skill_gap_analyzer.py  ──  ML-powered, fully dynamic
-═══════════════════════════════════════════════════════
-
-FIXES vs original:
-  1. Model string: "claude-sonnet-4-6" → "claude-sonnet-4-20250514"
-  2. Embedding path: original had a NotImplementedError block that always
-     ran and blocked the real embedding call. Now the fallback chain is:
-       a) voyageai if VOYAGE_API_KEY set
-       b) sklearn TF-IDF (always available)
-     The broken Anthropic-beta-embeddings block is removed entirely.
-  3. Cosine similarity: added guard for zero-dimension arrays.
-  4. Claude prioritization: added explicit timeout via max_tokens cap.
+skill_gap_analyzer.py  ──  Dynamic ML skill-gap analyzer (Web Scraping + NLP)
+═══════════════════════════════════════════════════════════════════════════════
 
 Pipeline:
-  1. Scrape live job postings (Naukri + LinkedIn + Indeed)
-  2. Extract skill tokens via regex + Claude NLP
-  3. Embed user skills & required skills
-  4. Cosine-similarity ranking to surface true skill gaps
-  5. Priority tiers derived from embedding distance, not fixed rules
+  1. Check MongoDB/memory cache for role-specific skills
+  2. Scrape live job postings (Naukri + LinkedIn + Indeed RSS)
+  3. NLP extraction: spaCy NER + noun-phrase chunking + regex + n-grams
+  4. Sentence-transformer semantic matching (all-MiniLM-L6-v2)
+  5. Frequency-based gap prioritization
+  6. Cache results in MongoDB (24h TTL)
+
+Fallback:
+  If scraping yields < 5 skills, supplements with seed catalogue.
+  If sentence-transformers unavailable, falls back to TF-IDF.
+  If spaCy unavailable, uses regex-only extraction.
 """
 
 import re
@@ -28,11 +24,12 @@ import os
 import sys
 import requests
 import numpy as np
+import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional, Tuple
-import anthropic
 from pathlib import Path
 from dotenv import load_dotenv
+from collections import Counter
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -43,15 +40,122 @@ except Exception:
 # Load backend/.env when running this module directly
 load_dotenv(Path(__file__).resolve().parents[1] / '.env')
 
-# ── Model constant ─────────────────────────────────────────────────────────────
-# FIXED: was "claude-sonnet-4-6" which is not a valid API model string.
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
+# ── Import our NLP skill extractor ────────────────────────────────────────────
+from skill_extractor import (
+    extract_skills_from_text,
+    semantic_skill_match,
+    get_skill_embeddings,
+)
+from onet_utils import OnetClient
 
+_onet = OnetClient()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MongoDB persistent cache for scraped skills
+# ─────────────────────────────────────────────────────────────────────────────
+_skills_memory_cache: Dict[str, Dict] = {}
+_SKILLS_CACHE_TTL = 86400  # 24 hours
+
+_mongo_collection = None
+_mongo_connected = False
+
+
+def _connect_mongo_cache():
+    """Connect to MongoDB for persistent skill caching."""
+    global _mongo_collection, _mongo_connected
+    if _mongo_connected:
+        return _mongo_collection
+    uri = os.environ.get("MONGO_URI", "")
+    if not uri:
+        print("[SkillCache] MONGO_URI not set — memory-only cache", file=sys.stderr)
+        return None
+    try:
+        from pymongo import MongoClient
+        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        client.admin.command("ping")
+        coll = client["learnoptima"]["scraped_skills_cache"]
+        coll.create_index("cacheKey", unique=True, background=True)
+        _mongo_collection = coll
+        _mongo_connected = True
+        print("[SkillCache] ✓ MongoDB connected", file=sys.stderr)
+        return coll
+    except Exception as e:
+        print(f"[SkillCache] MongoDB failed ({e}) — memory-only", file=sys.stderr)
+        return None
+
+
+def _cache_get(role: str) -> Optional[Dict]:
+    """Get cached scraped skills for a role."""
+    key = f"skills::{role.lower().strip()}"
+
+    # Memory cache
+    if key in _skills_memory_cache:
+        entry = _skills_memory_cache[key]
+        if time.time() - entry["ts"] < _SKILLS_CACHE_TTL:
+            print(f"[SkillCache] Memory HIT: {role}")
+            return entry["data"]
+
+    # MongoDB cache
+    coll = _connect_mongo_cache()
+    if coll is not None:
+        try:
+            doc = coll.find_one({"cacheKey": key})
+            if doc and time.time() - doc.get("ts", 0) < _SKILLS_CACHE_TTL:
+                data = doc.get("data", {})
+                _skills_memory_cache[key] = {"ts": doc["ts"], "data": data}
+                print(f"[SkillCache] MongoDB HIT: {role}")
+                return data
+        except Exception as e:
+            print(f"[SkillCache] Read error: {e}", file=sys.stderr)
+
+    print(f"[SkillCache] MISS: {role}")
+    return None
+
+
+def _cache_set(role: str, data: Dict):
+    """Cache scraped skills for a role."""
+    key = f"skills::{role.lower().strip()}"
+    ts = time.time()
+    _skills_memory_cache[key] = {"ts": ts, "data": data}
+
+    coll = _connect_mongo_cache()
+    if coll is not None:
+        try:
+            coll.replace_one(
+                {"cacheKey": key},
+                {"cacheKey": key, "ts": ts, "data": data},
+                upsert=True,
+            )
+            print(f"[SkillCache] Saved: {role}")
+        except Exception as e:
+            print(f"[SkillCache] Write error: {e}", file=sys.stderr)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Role normalization
+# ─────────────────────────────────────────────────────────────────────────────
 ROLE_ALIASES = {
     "ca": "Chartered Accountant",
     "chartered accountant": "Chartered Accountant",
     "doctor": "Doctor",
     "physician": "Doctor",
+    "teacher": "Teacher",
+    "educator": "Teacher",
+    "lecturer": "Teacher",
+    "professor": "Professor",
+    "swe": "Software Engineer",
+    "frontend": "Frontend Developer",
+    "backend": "Backend Developer",
+    "devops": "DevOps Engineer",
+    "ds": "Data Scientist",
+    "da": "Data Analyst",
+    "ml engineer": "Machine Learning Engineer",
+    "mle": "Machine Learning Engineer",
+    "pm": "Product Manager",
+    "fullstack": "Full Stack Developer",
+    "full-stack": "Full Stack Developer",
+    "full stack": "Full Stack Developer",
 }
 
 
@@ -62,290 +166,68 @@ def _normalize_role(role: str) -> str:
     return ROLE_ALIASES.get(r.lower(), r)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  Seed skill catalogue (FALLBACK ONLY — used when scraping yields < 5 skills)
+# ─────────────────────────────────────────────────────────────────────────────
 def _role_seed_skills(role: str) -> List[str]:
+    """Fallback seed skills when scraping yields insufficient data."""
     r = role.lower()
-    if any(k in r for k in ["quantum engineer", "quantum computing", "quantum developer"]):
-        return [
-            "python", "linear algebra", "probability", "quantum mechanics", "qiskit",
-            "cirq", "quantum algorithms", "quantum circuits", "quantum error correction",
-            "optimization", "machine learning", "research papers", "mathematics",
-        ]
-    if any(k in r for k in ["data scientist", "data science"]):
-        return [
-            "python", "sql", "statistics", "probability", "machine learning",
-            "deep learning", "pandas", "numpy", "scikit-learn", "data visualization",
-            "feature engineering", "model evaluation", "a/b testing", "experimentation",
-            "tensorflow", "pytorch", "business understanding", "case studies",
-        ]
-    if any(k in r for k in ["data analyst", "analyst", "business analyst", "bi analyst"]):
-        return [
-            "excel", "sql", "python", "statistics", "data visualization",
-            "power bi", "tableau", "pandas", "business analysis", "dashboarding",
-        ]
+
+    if any(k in r for k in ["teacher", "educator", "tutor", "lecturer", "instructor"]):
+        return ["lesson planning", "classroom management", "curriculum development",
+                "student assessment", "communication skills", "learning management systems"]
+    if any(k in r for k in ["professor", "faculty", "academic"]):
+        return ["research & publication", "curriculum design", "academic writing",
+                "student mentoring", "grant writing", "pedagogical methods"]
     if any(k in r for k in ["doctor", "physician", "medical", "surgeon"]):
-        return [
-            "clinical diagnosis", "patient assessment", "medical ethics", "pharmacology",
-            "evidence-based medicine", "electronic health records", "case documentation",
-            "emergency care", "communication", "hospital protocols",
-        ]
+        return ["clinical diagnosis", "patient assessment", "pharmacology",
+                "evidence-based medicine", "electronic health records", "emergency care"]
+    if any(k in r for k in ["nurse", "nursing"]):
+        return ["patient care", "vital signs monitoring", "medication administration",
+                "wound care", "infection control", "emergency response"]
     if any(k in r for k in ["chartered accountant", "ca", "accountant", "audit", "tax"]):
-        return [
-            "financial accounting", "auditing standards", "direct tax", "indirect tax (gst)",
-            "financial reporting", "corporate law", "cost accounting", "excel",
-            "tally/erp", "risk & compliance",
-        ]
-    return [
-        "domain fundamentals", "core tools", "industry standards", "professional communication",
-        "documentation", "compliance & ethics",
-    ]
+        return ["financial accounting", "auditing standards", "direct tax", "indirect tax",
+                "financial reporting", "tally/erp", "risk & compliance"]
+    if any(k in r for k in ["lawyer", "advocate", "attorney", "legal"]):
+        return ["legal research", "legal drafting", "contract law", "litigation",
+                "case analysis", "negotiation", "corporate law"]
+    if any(k in r for k in ["data scientist", "data science"]):
+        return ["python", "sql", "statistics", "machine learning", "pandas", "numpy",
+                "scikit-learn", "deep learning", "data visualization"]
+    if any(k in r for k in ["software engineer", "developer", "programmer"]):
+        return ["python", "javascript", "sql", "git", "react", "node.js",
+                "data structures", "algorithms", "system design", "docker"]
+    if any(k in r for k in ["marketing", "digital marketing"]):
+        return ["seo", "sem", "google analytics", "social media marketing",
+                "content marketing", "email marketing", "crm tools"]
+    if any(k in r for k in ["security engineer", "cybersecurity", "infosec", "security analyst"]):
+        return ["cybersecurity", "network security", "ethical hacking", "siem", "soc",
+                "incident response", "vulnerability assessment", "firewalls", "cryptography", "cloud security"]
 
-# ── Optional Selenium ────────────────────────────────────────────────────────
-try:
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    SELENIUM_AVAILABLE = True
-except ImportError:
-    SELENIUM_AVAILABLE = False
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Anthropic client (singleton)
-# ─────────────────────────────────────────────────────────────────────────────
-_anthropic_client: Optional[anthropic.Anthropic] = None
-
-def get_anthropic_client() -> anthropic.Anthropic:
-    global _anthropic_client
-    if _anthropic_client is None:
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            raise EnvironmentError("ANTHROPIC_API_KEY not set.")
-        _anthropic_client = anthropic.Anthropic(api_key=api_key, timeout=30.0)
-    return _anthropic_client
+    # Generic fallback
+    return ["communication", "problem solving", "teamwork", "analytical skills",
+            "project management"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Tech-skill regex  (fast first-pass extraction)
-# ─────────────────────────────────────────────────────────────────────────────
-TECH_PATTERN = re.compile(
-    r"\b("
-    r"python|javascript|typescript|java|c\+\+|c#|go|rust|ruby|php|swift|kotlin|scala|r\b|matlab|julia|"
-    r"react|angular|vue|next\.?js|nuxt|svelte|jquery|"
-    r"node\.?js|express|django|flask|fastapi|spring|rails|laravel|"
-    r"sql|mysql|postgresql|mongodb|redis|elasticsearch|cassandra|dynamodb|"
-    r"aws|gcp|azure|docker|kubernetes|terraform|ansible|jenkins|circleci|"
-    r"machine learning|deep learning|nlp|computer vision|generative ai|llm|"
-    r"tensorflow|pytorch|keras|scikit.?learn|pandas|numpy|hugging.?face|langchain|"
-    r"git|linux|bash|rest api|graphql|microservices|"
-    r"html|css|sass|tailwind|webpack|vite|"
-    r"data structures|algorithms|system design|object.?oriented|"
-    r"agile|scrum|devops|ci/?cd|unit testing|selenium|"
-    r"figma|sketch|photoshop|illustrator|"
-    r"spark|hadoop|kafka|airflow|dbt|tableau|power bi|"
-    r"qiskit|cirq|quantum mechanics|linear algebra|"
-    r"prompt engineering|rag|vector database|embeddings|fine.?tuning|"
-    r"communication|problem solving|teamwork|leadership"
-    r")\b",
-    re.IGNORECASE,
-)
-
-DOMAIN_PATTERN = re.compile(
-    r"\b(clinical diagnosis|patient assessment|medical ethics|pharmacology|"
-    r"evidence-based medicine|electronic health records|emergency care|"
-    r"financial accounting|auditing standards|direct tax|indirect tax|gst|"
-    r"financial reporting|corporate law|cost accounting|risk compliance|"
-    r"excel|tally|erp)\b",
-    re.IGNORECASE,
-)
-
-
-def _extract_skills_from_text(text: str) -> List[str]:
-    found = TECH_PATTERN.findall(text) + DOMAIN_PATTERN.findall(text)
-    seen, out = set(), []
-    for s in found:
-        key = s.lower().strip()
-        if key not in seen:
-            seen.add(key)
-            out.append(key)
-    return out
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  ML Layer 1 — Claude NLP skill extraction from raw job text
-# ─────────────────────────────────────────────────────────────────────────────
-def _claude_extract_skills_from_jd(jd_text: str, role: str) -> List[str]:
-    role = _normalize_role(role)
-    if not jd_text.strip():
-        return []
-    client = get_anthropic_client()
-    prompt = (
-        f'Extract all job-relevant skills, competencies, tools, frameworks, and domain knowledge '
-        f'required for a "{role}" from this job description text.\n\n'
-        f'Return ONLY a JSON array of skill strings — no markdown, no explanation.\n\n'
-        f'Job description text:\n"""\n{jd_text[:3000]}\n"""\n\nJSON array:'
-    )
-    try:
-        msg = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=400,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = msg.content[0].text.strip()
-        raw = re.sub(r"^```[a-z]*\n?", "", raw, flags=re.M)
-        raw = re.sub(r"\n?```$", "", raw, flags=re.M)
-        skills = json.loads(raw)
-        if isinstance(skills, list):
-            return [str(s).lower().strip() for s in skills if s]
-    except Exception as e:
-        print(f"[Claude Extract] Failed: {e}")
-    return []
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  ML Layer 2 — Embeddings for semantic skill matching
-#
-#  FIXED: original had a broken NotImplementedError block that prevented
-#  any embedding from ever being computed. New chain:
-#    1. voyageai (if VOYAGE_API_KEY or ANTHROPIC_API_KEY works with voyage)
-#    2. sklearn TF-IDF (always available — no extra key needed)
-# ─────────────────────────────────────────────────────────────────────────────
-def _get_embeddings(texts: List[str]) -> np.ndarray:
-    if not texts:
-        return np.zeros((0, 1), dtype=np.float32)
-
-    # ── Option A: Voyage AI embeddings (best semantic quality) ───────────────
-    voyage_key = os.environ.get("VOYAGE_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
-    if voyage_key:
-        try:
-            import voyageai
-            vo = voyageai.Client(api_key=voyage_key)
-            result = vo.embed(texts, model="voyage-3", input_type="document")
-            return np.array(result.embeddings, dtype=np.float32)
-        except Exception as e:
-            print(f"[Embeddings] Voyage failed ({e}) — falling back to TF-IDF")
-
-    # ── Option B: TF-IDF (always works, no API key needed) ───────────────────
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    try:
-        vec = TfidfVectorizer(ngram_range=(1, 2), min_df=1, sublinear_tf=True)
-        mat = vec.fit_transform(texts)
-        return mat.toarray().astype(np.float32)
-    except Exception as e:
-        print(f"[Embeddings] TF-IDF failed ({e})")
-        return np.zeros((len(texts), 1), dtype=np.float32)
-
-
-def _cosine_similarity_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    if a.ndim == 1: a = a.reshape(1, -1)
-    if b.ndim == 1: b = b.reshape(1, -1)
-    if a.shape[1] == 0 or b.shape[1] == 0:
-        return np.zeros((a.shape[0], b.shape[0]), dtype=np.float32)
-    norm_a = np.linalg.norm(a, axis=1, keepdims=True) + 1e-9
-    norm_b = np.linalg.norm(b, axis=1, keepdims=True) + 1e-9
-    return (a / norm_a) @ (b / norm_b).T
-
-
-def _semantic_skill_gap(
-    user_skills: List[str],
-    required_skills: List[str],
-    threshold: float = 0.65,      # slightly lower default for TF-IDF compat
-) -> Tuple[List[str], List[str], float]:
-    """
-    Semantic matching: a user skill 'covers' a required skill if cosine
-    similarity >= threshold. Falls back to exact string matching on failure.
-    """
-    if not user_skills or not required_skills:
-        return [], required_skills, 0.0
-
-    all_texts  = user_skills + required_skills
-    embeddings = _get_embeddings(all_texts)
-
-    if embeddings.shape[0] < len(all_texts):
-        # Embedding completely failed — exact string fallback
-        user_lower = {s.lower() for s in user_skills}
-        matched = [s for s in required_skills if s.lower() in user_lower]
-        missing  = [s for s in required_skills if s.lower() not in user_lower]
-        score    = len(matched) / max(len(required_skills), 1) * 100
-        return matched, missing, score
-
-    user_emb = embeddings[:len(user_skills)]
-    req_emb  = embeddings[len(user_skills):]
-
-    sim        = _cosine_similarity_matrix(req_emb, user_emb)   # (n_req, n_user)
-    best_match = sim.max(axis=1)                                 # best user skill per required
-
-    matched = [req for req, sc in zip(required_skills, best_match) if sc >= threshold]
-    missing  = [req for req, sc in zip(required_skills, best_match) if sc < threshold]
-    overall  = float(best_match.mean()) * 100
-    return matched, missing, overall
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  ML Layer 3 — Claude ranks and prioritizes skill gaps
-# ─────────────────────────────────────────────────────────────────────────────
-def _claude_prioritize_gaps(
-    role: str,
-    user_skills: List[str],
-    missing_skills: List[str],
-) -> Dict:
-    role = _normalize_role(role)
-    if not missing_skills:
-        return {"high_priority": [], "medium_priority": [], "low_priority": [],
-                "learning_order": [], "estimated_weeks": 0, "key_insight": ""}
-
-    client = get_anthropic_client()
-    prompt = (
-        f'You are a senior career advisor.\n\n'
-        f'Role target: "{role}"\n'
-        f'User already knows: {json.dumps(user_skills[:15])}\n'
-        f'Missing skills to prioritize: {json.dumps(missing_skills[:20])}\n\n'
-        f'Return ONLY valid JSON (no markdown):\n'
-        f'{{\n'
-        f'  "high_priority": ["skill1", ...],\n'
-        f'  "medium_priority": ["skill2", ...],\n'
-        f'  "low_priority": ["skill3", ...],\n'
-        f'  "learning_order": ["skill1", ...],\n'
-        f'  "estimated_weeks": 24,\n'
-        f'  "key_insight": "One sentence on the biggest gap."\n'
-        f'}}'
-    )
-    try:
-        msg = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=600,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = msg.content[0].text.strip()
-        raw = re.sub(r"^```[a-z]*\n?", "", raw, flags=re.M)
-        raw = re.sub(r"\n?```$", "", raw, flags=re.M)
-        return json.loads(raw)
-    except Exception as e:
-        print(f"[Claude Prioritize] Failed: {e}")
-        third = max(1, len(missing_skills) // 3)
-        return {
-            "high_priority":   missing_skills[:third],
-            "medium_priority": missing_skills[third:2*third],
-            "low_priority":    missing_skills[2*third:],
-            "learning_order":  missing_skills,
-            "estimated_weeks": 24,
-            "key_insight":     f"Focus on {missing_skills[0]} first." if missing_skills else "",
-        }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Web scrapers
+#  Web scrapers — fetch raw job description text
 # ─────────────────────────────────────────────────────────────────────────────
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
 
 def _scrape_naukri(job_title: str, location: str = "india", pages: int = 2) -> str:
+    """Scrape Naukri search results and individual JD pages."""
     texts = []
-    slug  = job_title.lower().replace(" ", "-")
-    loc   = location.lower().replace(" ", "-")
+    slug = job_title.lower().replace(" ", "-")
+    loc = location.lower().replace(" ", "-")
+
     for page in range(1, pages + 1):
         url = f"https://www.naukri.com/{slug}-jobs-in-{loc}-{page}"
         try:
@@ -353,13 +235,43 @@ def _scrape_naukri(job_title: str, location: str = "india", pages: int = 2) -> s
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
                 texts.append(soup.get_text(" ", strip=True))
-            time.sleep(random.uniform(1.0, 2.5))
+
+                # Also try to get individual JD links from the page
+                jd_links = []
+                for a in soup.find_all("a", href=True):
+                    href = a["href"]
+                    if "naukri.com/job-listings-" in href or "/job-listings-" in href:
+                        full_url = href if href.startswith("http") else f"https://www.naukri.com{href}"
+                        jd_links.append(full_url)
+
+                # Fetch up to 3 individual JDs for richer text
+                for jd_url in jd_links[:3]:
+                    try:
+                        jd_resp = requests.get(jd_url, headers=HEADERS, timeout=8)
+                        if jd_resp.status_code == 200:
+                            jd_soup = BeautifulSoup(jd_resp.text, "html.parser")
+                            # Look for JD container
+                            jd_div = (
+                                jd_soup.find("div", class_=re.compile(r"job-desc|JDContainer|description", re.I))
+                                or jd_soup.find("section", class_=re.compile(r"job-desc|description", re.I))
+                            )
+                            if jd_div:
+                                texts.append(jd_div.get_text(" ", strip=True))
+                            else:
+                                texts.append(jd_soup.get_text(" ", strip=True)[:5000])
+                        time.sleep(random.uniform(0.3, 0.8))
+                    except Exception:
+                        pass
+
+            time.sleep(random.uniform(0.5, 1.5))
         except Exception as e:
-            print(f"[Naukri] page {page} error: {e}")
+            print(f"[Scraper] Naukri page {page} error: {e}", file=sys.stderr)
+
     return " ".join(texts)
 
 
 def _scrape_linkedin(job_title: str, location: str = "India") -> str:
+    """Scrape LinkedIn public job search page."""
     url = (
         f"https://www.linkedin.com/jobs/search"
         f"?keywords={job_title.replace(' ', '%20')}"
@@ -368,24 +280,100 @@ def _scrape_linkedin(job_title: str, location: str = "India") -> str:
     )
     try:
         resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        time.sleep(random.uniform(1.5, 3.0))
-        return soup.get_text(" ", strip=True)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            time.sleep(random.uniform(0.5, 1.0))
+            return soup.get_text(" ", strip=True)
     except Exception as e:
-        print(f"[LinkedIn] error: {e}")
-        return ""
+        print(f"[Scraper] LinkedIn error: {e}", file=sys.stderr)
+    return ""
 
 
-def _scrape_indeed(job_title: str, location: str = "India") -> str:
-    url = f"https://www.indeed.com/jobs?q={job_title.replace(' ', '+')}&l={location}"
+def _scrape_indeed_rss(job_title: str, location: str = "india") -> str:
+    """Scrape Indeed RSS feed (free, no API key needed)."""
+    texts = []
+    query = job_title.replace(" ", "+")
+    loc = location.replace(" ", "+")
+    url = f"https://www.indeed.co.in/rss?q={query}&l={loc}"
     try:
         resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        time.sleep(random.uniform(1.5, 2.5))
-        return soup.get_text(" ", strip=True)
+        if resp.status_code == 200:
+            try:
+                root = ET.fromstring(resp.text)
+                for item in root.findall(".//item"):
+                    desc = item.find("description")
+                    title = item.find("title")
+                    if desc is not None and desc.text:
+                        soup = BeautifulSoup(desc.text, "html.parser")
+                        texts.append(soup.get_text(" ", strip=True))
+                    if title is not None and title.text:
+                        texts.append(title.text)
+            except ET.ParseError:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                texts.append(soup.get_text(" ", strip=True))
     except Exception as e:
-        print(f"[Indeed] error: {e}")
-        return ""
+        print(f"[Scraper] Indeed RSS error: {e}", file=sys.stderr)
+    return " ".join(texts)
+
+
+def _scrape_google_search(job_title: str, location: str = "India") -> str:
+    """Scrape a Google search for '<role> skills required' for supplementary data."""
+    texts = []
+    queries = [
+        f"{job_title} skills required {location}",
+        f"{job_title} job description skills",
+    ]
+    for query in queries:
+        url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=8)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                # Get search snippet text
+                for div in soup.find_all("div", class_=re.compile(r"BNeawe|VwiC3b", re.I)):
+                    texts.append(div.get_text(" ", strip=True))
+                # Also get featured snippet if present
+                for div in soup.find_all("div", class_=re.compile(r"IZ6rdc|xpdopen", re.I)):
+                    texts.append(div.get_text(" ", strip=True))
+            time.sleep(random.uniform(0.5, 1.5))
+        except Exception as e:
+            print(f"[Scraper] Google search error: {e}", file=sys.stderr)
+    return " ".join(texts)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Gap prioritization (frequency + importance based)
+# ─────────────────────────────────────────────────────────────────────────────
+def _prioritize_gaps(
+    role: str,
+    missing_skills: List[str],
+    freq_map: Dict[str, int],
+) -> Dict:
+    """Prioritize gaps by scraped frequency."""
+    if not missing_skills:
+        return {
+            "high_priority": [], "medium_priority": [], "low_priority": [],
+            "learning_order": [], "estimated_weeks": 0, "key_insight": "",
+        }
+
+    # Sort by frequency in scraped results (higher = more important)
+    sorted_missing = sorted(
+        missing_skills,
+        key=lambda x: freq_map.get(x.lower(), freq_map.get(x, 0)),
+        reverse=True,
+    )
+
+    third = max(1, len(sorted_missing) // 3)
+    high_prio = sorted_missing[:third]
+
+    return {
+        "high_priority":   high_prio,
+        "medium_priority": sorted_missing[third:2*third],
+        "low_priority":    sorted_missing[2*third:],
+        "learning_order":  sorted_missing,
+        "estimated_weeks": max(8, min(52, len(sorted_missing) * 3)),
+        "key_insight":     f"Focus on {high_prio[0]} first — highest demand in live job postings." if high_prio else "",
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -399,66 +387,118 @@ class DynamicSkillGapAnalyzer:
         target_role: str,
         location:    str = "India",
         top_n:       int = 20,
+        refresh:     bool = False,
     ) -> Dict:
         target_role = _normalize_role(target_role)
-        print(f"[SkillGap] Analyzing '{target_role}' for user with {len(user_skills)} skills...")
+        print(f"\n[SkillGap] ═══ Analyzing '{target_role}' for user with {len(user_skills)} skills ═══")
 
-        # Step 1: Scrape raw job text
-        print("[SkillGap] Scraping job postings...")
-        raw_text = (
-            _scrape_naukri(target_role, location)
-            + " " + _scrape_linkedin(target_role, location)
-            + " " + _scrape_indeed(target_role, location)
+        # ── Step 1: Check cache ──────────────────────────────────────────────
+        cached = None if refresh else _cache_get(target_role)
+        
+        # If O*NET is available but cache is from an old live-scrape, ignore cache to force O*NET
+        use_cache = False
+        if cached:
+            if _onet.available and cached.get("source") != "onet-api":
+                print(f"[SkillGap] Ignoring non-O*NET cache for '{target_role}' to favor O*NET")
+                use_cache = False
+            else:
+                use_cache = True
+        
+        if use_cache and cached:
+            freq_map = cached.get("freq_map", {})
+            required_skills = cached.get("required_skills", [])
+            scrape_source = cached.get("source", "cache")
+            print(f"[SkillGap] Using cached {len(required_skills)} skills for '{target_role}' from {scrape_source}")
+        else:
+            # ── Step 2: Hybrid Pipeline (O*NET Foundations + Modern Scrape) ──
+            required_skills = []
+            freq_map = {}
+            
+            # A) Get O*NET foundations
+            onet_list = []
+            if _onet.available:
+                print(f"[SkillGap] Fetching O*NET foundations for '{target_role}'...")
+                onet_list = _onet.get_role_skills(target_role)
+                for s in onet_list:
+                    name = s["name"].lower().strip()
+                    score = s.get("score", 3.0)
+                    freq_map[name] = int(score * 10)  # High base priority for O*NET
+            
+            # B) Get modern market skills via scraping
+            print(f"[SkillGap] Scraping live job data for modern keywords for '{target_role}'...")
+            raw_naukri   = _scrape_naukri(target_role, location)
+            raw_linkedin = _scrape_linkedin(target_role, location)
+            raw_indeed   = _scrape_indeed_rss(target_role, location)
+            raw_google   = _scrape_google_search(target_role, location)
+
+            raw_text = f"{raw_naukri} {raw_linkedin} {raw_indeed} {raw_google}"
+            print(f"[SkillGap] Scraped {len(raw_text):,} chars of job text")
+            
+            scraped_skills_raw = extract_skills_from_text(raw_text)
+            
+            # C) Merge lists
+            # Prioritize scraped skills if they appear frequently
+            for sname, count in scraped_skills_raw.items():
+                name = sname.lower().strip()
+                if name in freq_map:
+                    # Boost existing O*NET skill
+                    freq_map[name] += count
+                else:
+                    # New modern skill from market
+                    freq_map[name] = count
+            
+            # D) BLEND in core seed skills (User's "Default Role Skills")
+            seed_skills = _role_seed_skills(target_role)
+            for ss in seed_skills:
+                name = ss.lower().strip()
+                if name in freq_map:
+                    # Priority boost for core seed skills
+                    freq_map[name] += 50
+                else:
+                    freq_map[name] = 25  # Solid entry for seed skills
+            
+            # Build level mapping for sorting
+            level_map = {}
+            for s in onet_list:
+                level_map[s["name"].lower().strip()] = s.get("level", "intermediate")
+            for ss in seed_skills:
+                level_map[ss.lower().strip()] = "beginner"
+            
+            # Sort order: beginner(0) -> intermediate(1) -> advanced(2)
+            LEVEL_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
+            
+            # Sort by difficulty first, then by frequency
+            sorted_names = sorted(
+                freq_map.keys(), 
+                key=lambda x: (LEVEL_ORDER.get(level_map.get(x, "intermediate"), 1), -freq_map[x])
+            )
+            required_skills = [s.title() for s in sorted_names[:top_n]]
+            scrape_source = "hybrid-onet-market-seeded"
+            
+            if not required_skills and not onet_list:
+                # Absolute fallback
+                print("[SkillGap] All sources failed, using seed catalogue")
+                required_skills = seed_catalogue.get(target_role, seed_catalogue.get("Software Engineer", []))
+                scrape_source = "seed-catalogue"
+
+            # ── Step 4: Cache the results ────────────────────────────────────
+            _cache_set(target_role, {
+                "freq_map": freq_map,
+                "required_skills": required_skills,
+                "source": scrape_source
+            })
+
+        # ── Step 5: Semantic matching (sentence-transformer or TF-IDF) ───────
+        print(f"[SkillGap] Semantic matching {len(user_skills)} user skills vs {len(required_skills)} required...")
+        matched, missing, match_score = semantic_skill_match(
+            user_skills, required_skills, threshold=0.55
         )
 
-        # Step 2: Regex + Claude NLP skill extraction
-        regex_skills  = _extract_skills_from_text(raw_text)
-        print(f"[SkillGap] Regex: {len(regex_skills)} skills; running Claude extraction...")
-        claude_skills = _claude_extract_skills_from_jd(raw_text, target_role)
+        # ── Step 6: Prioritize gaps by scraped frequency ─────────────────────
+        print(f"[SkillGap] Prioritizing {len(missing)} gaps...")
+        priority = _prioritize_gaps(target_role, missing, freq_map)
 
-        # Frequency rank and deduplicate
-        freq: Dict[str, int] = {}
-        for s in regex_skills + claude_skills:
-            key = s.lower().strip()
-            if key:
-                freq[key] = freq.get(key, 0) + 1
-
-        required_skills = [s for s, _ in sorted(freq.items(), key=lambda x: x[1], reverse=True)][:top_n]
-
-        # Fallback: Claude generates required skills if scraping yielded nothing
-        if len(required_skills) < 5:
-            print("[SkillGap] Insufficient scrape data - Claude fallback generation...")
-            try:
-                client = get_anthropic_client()
-                msg    = client.messages.create(
-                    model=CLAUDE_MODEL,
-                    max_tokens=300,
-                    messages=[{"role": "user", "content":
-                        f'List the 15 most important job-relevant skills/competencies for a "{target_role}" in 2025. '
-                        f'Return ONLY a JSON array of skill strings.'}],
-                )
-                raw = msg.content[0].text.strip()
-                raw = re.sub(r"^```[a-z]*\n?", "", raw, flags=re.M)
-                raw = re.sub(r"\n?```$", "", raw, flags=re.M)
-                required_skills = json.loads(raw)
-            except Exception as e:
-                print(f"[SkillGap] Claude fallback failed: {e}")
-                required_skills = _role_seed_skills(target_role)
-
-        required_skills = list(dict.fromkeys([str(s).lower().strip() for s in required_skills if s]))
-        required_skills = list(dict.fromkeys(required_skills + _role_seed_skills(target_role)))[:top_n]
-
-        # Step 3: Semantic matching
-        print(f"[SkillGap] Semantic similarity on {len(required_skills)} required skills...")
-        matched, missing, match_score = _semantic_skill_gap(
-            user_skills, required_skills, threshold=0.65
-        )
-
-        # Step 4: Claude prioritizes gaps
-        print(f"[SkillGap] Claude prioritizing {len(missing)} gaps...")
-        priority = _claude_prioritize_gaps(target_role, user_skills, missing)
-
-        return {
+        result = {
             "role":                 target_role,
             "location":             location,
             "required_skills":      required_skills,
@@ -472,8 +512,13 @@ class DynamicSkillGapAnalyzer:
             "estimated_weeks":      priority.get("estimated_weeks", 24),
             "key_insight":          priority.get("key_insight", ""),
             "recommendations":      [f"Learn {s}" for s in priority.get("high_priority", missing[:5])],
-            "ml_pipeline":          "scrape → claude-nlp → embedding-similarity → claude-prioritize",
+            "scraped_text_length":  len(raw_text) if 'raw_text' in dir() else 0,
+            "skills_source":        scrape_source if 'scrape_source' in dir() else "cache",
+            "ml_pipeline":          "scrape(naukri+linkedin+indeed+google) → nlp(spacy+regex+ngrams) → embed(sentence-transformer) → prioritize(frequency)",
         }
+
+        print(f"[SkillGap] ✓ Done — {len(matched)} matched, {len(missing)} missing, score={match_score:.1f}%\n")
+        return result
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
@@ -486,20 +531,21 @@ def get_analyzer() -> DynamicSkillGapAnalyzer:
     return _analyzer
 
 
-def analyze_skill_gap(user_skills: List[str], target_role: str, location: str = "India") -> Dict:
+def analyze_skill_gap(user_skills: List[str], target_role: str, location: str = "India", refresh: bool = False) -> Dict:
     """Public API used by Flask routes."""
-    return get_analyzer().analyze(user_skills, target_role, location)
+    return get_analyzer().analyze(user_skills, target_role, location, refresh=refresh)
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="ML skill-gap analyzer")
+    parser = argparse.ArgumentParser(description="ML skill-gap analyzer (Dynamic NLP)")
     parser.add_argument("--skills",   default="Python,SQL,React")
     parser.add_argument("--role",     default="Data Scientist")
     parser.add_argument("--location", default="India")
+    parser.add_argument("--refresh",  action="store_true")
     args = parser.parse_args()
 
     user_skills = [s.strip() for s in args.skills.split(",") if s.strip()]
-    result      = analyze_skill_gap(user_skills, args.role, args.location)
+    result      = analyze_skill_gap(user_skills, args.role, args.location, refresh=args.refresh)
     print(json.dumps(result, indent=2))

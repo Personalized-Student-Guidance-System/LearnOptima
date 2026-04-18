@@ -9,6 +9,7 @@
 //   • Role switcher now correctly resets checklist state on role change.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 import LiveJobsDropdown                         from '../components/career/LiveJobsDropdown';
@@ -52,6 +53,7 @@ const DEFAULT_ROLES = [
 // ─────────────────────────────────────────────────────────────────────────────
 export default function CareerRoadmap() {
   useGlobalAnimations();
+  const navigate = useNavigate();
 
   const [userProfile,    setUserProfile]    = useState(null);
   const [role,           setRole]           = useState(null);
@@ -83,11 +85,11 @@ export default function CareerRoadmap() {
   // ── Fetch roadmap phases ──────────────────────────────────────────────────
   // FIXED: backend returns { phases, skillGap, checklistId, ... } at root level.
   // Previous code looked inside data.roadmap.phases — which never existed.
-  const fetchRoadmap = useCallback(async (r) => {
+  const fetchRoadmap = useCallback(async (r, refresh = false) => {
     setLoading(true);
     setData(null);
     try {
-      const res = await axios.get(`/career/personalized?role=${encodeURIComponent(r)}`);
+      const res = await axios.get(`/career/personalized?role=${encodeURIComponent(r)}${refresh ? '&refresh=true' : ''}`);
       setData(res.data);
 
       // Load persisted checklist if one exists for this role
@@ -155,6 +157,10 @@ export default function CareerRoadmap() {
       .catch((err) => console.error('Save role error:', err.response?.data || err.message));
   }, []);
 
+  const handleRefresh = () => {
+    if (role) fetchRoadmap(role, true);
+  };
+
   // ── Derived values ────────────────────────────────────────────────────────
   // FIXED: backend returns phases at root level, not inside data.roadmap
   const phases   = data?.phases || [];
@@ -162,24 +168,20 @@ export default function CareerRoadmap() {
   const allItems  = phases.flatMap((p) => p.tasks || []);
   const doneCount = Object.values(checked).filter(Boolean).length;
 
-  const roles = data?.availableRoles?.length
-    ? data.availableRoles
-    : availableRoles;
+  // ── Render: auto-redirect if no role set ──────────────────────────────────
+  useEffect(() => {
+    if (!loading && !role) {
+      navigate('/profile');
+    }
+  }, [loading, role, navigate]);
 
-  // ── Render: full-page skeleton (initial load, no role yet) ─────────────────
   if (loading && !role) {
     return (
       <div className="page-enter" style={{ padding: '24px 28px', maxWidth: 900 }}>
         <ShimmerBlock width={300} height={28} style={{ marginBottom: 8 }} />
         <ShimmerBlock width={400} height={16} style={{ marginBottom: 32 }} />
-        <SkeletonRoleSelector count={8} />
       </div>
     );
-  }
-
-  // ── Render: role selection screen ─────────────────────────────────────────
-  if (!role) {
-    return <RoleSelectorPage roles={roles} onSelect={handleSelectRole} />;
   }
 
   // ── Render: main roadmap view ─────────────────────────────────────────────
@@ -202,10 +204,10 @@ export default function CareerRoadmap() {
         <button
           type="button"
           className="btn btn-secondary btn-sm"
-          onClick={() => { setRole(null); setData(null); }}
+          onClick={() => navigate('/profile')}
           style={{ marginTop: 2 }}
         >
-          Change Role
+          Change Role via Profile
         </button>
       </div>
 
@@ -213,7 +215,18 @@ export default function CareerRoadmap() {
       <LiveJobsDropdown role={role} jobs={jobRoles} loading={loadingRoles} />
 
       {/* Role switcher strip */}
-      <RoleSwitcher roles={roles} currentRole={role} onSelect={handleSelectRole} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button 
+            title="Refresh roadmap data"
+            onClick={handleRefresh}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              padding: 4, borderRadius: 6, color: G.text3,
+              fontSize: 16, lineHeight: 1, display: 'flex', alignItems: 'center',
+              border: `1px solid ${G.border}`
+            }}
+          >↺ Refresh Roadmap</button>
+        </div>
 
       {/* Overall progress */}
       <ProgressBar doneCount={doneCount} totalCount={allItems.length} />

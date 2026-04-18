@@ -6,7 +6,7 @@ const API = axios.create({
 
 // Add token to requests (use 'sf_token' to match AuthContext)
 API.interceptors.request.use((req) => {
-  const token = localStorage.getItem('sf_token');
+  const token = localStorage.getItem('sf_token') || localStorage.getItem('token');
   if (token) req.headers.Authorization = `Bearer ${token}`;
   return req;
 });
@@ -46,7 +46,7 @@ export const sendBurnoutCoachMessage = (message) => API.post('/burnout/coach/mes
 // Skills
 export const getSkills = () => API.get('/skills');
 export const updateSkills = (data) => API.post('/skills', data);
-export const analyzeSkillGap = (role) => API.get('/skills/analyze', { params: { role } });
+export const analyzeSkillGap = (role, refresh = false) => API.get('/skills/analyze', { params: { role, refresh } });
 export const getSkillLearningPath = (role) => API.get('/skills/learning-path', { params: { role } });
 export const getSkillAIRecommendation = (role) => API.get('/skills/ai-recommendation', { params: { role } });
 export const updateSkillLearningQueue = (skill, action) => API.put('/skills/learning-queue', { skill, action });

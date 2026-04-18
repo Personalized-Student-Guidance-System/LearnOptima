@@ -11,3 +11,8 @@ flask==3.0.3
 flask-cors==5.0.0
 pymongo[srv]==4.7.2
 python-dotenv==1.0.1
+
+# ── NLP / ML for dynamic skill extraction ──
+spacy>=3.7,<4.0
+sentence-transformers>=2.2.0,<3.0
+torch>=2.0.0

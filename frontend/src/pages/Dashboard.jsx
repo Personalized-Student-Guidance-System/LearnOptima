@@ -62,28 +62,20 @@ export default function Dashboard() {
     
     // Fetch roadmap progress
     if (user?.targetRole) {
-      axios.get(`/career/checklist/${user.checklistId}`).then(r => {
-        const items = Object.values(r.data.items || {});
-        const completed = items.filter(Boolean).length;
-        const pct = items.length > 0 ? Math.round((completed / items.length) * 100) : 0;
-        setRoadmapPct(pct);
-      }).catch(() => {});
+      const cid = user.checklistId;
+      if (cid) {
+        axios.get(`/career/checklist/${cid}`).then(r => {
+          const items = Object.values(r.data?.items || {});
+          const completed = items.filter(Boolean).length;
+          const pct = items.length > 0 ? Math.round((completed / items.length) * 100) : 0;
+          setRoadmapPct(pct);
+        }).catch(() => {});
+      }
       
-      // Estimate skill gaps
-      axios.get('/career/personalized').then(r => {
-        const roadmap = r.data.roadmap;
-        let totalSkills = 0;
-        let userHasSkill = 0;
-        roadmap.semesters.forEach(sem => {
-          sem.resources.forEach(res => {
-            if (res) {
-              totalSkills++;
-              if (res.hasSkill) userHasSkill++;
-            }
-          });
-        });
-        const gaps = totalSkills - userHasSkill;
-        setSkillGaps(Math.max(0, gaps));
+      // Estimate skill gaps from skill-gap analysis
+      axios.get(`/skills/analyze?role=${encodeURIComponent(user.targetRole)}`).then(r => {
+        const missingCount = r.data?.overview?.missing_count || r.data?.missing_skills?.length || 0;
+        setSkillGaps(missingCount);
       }).catch(() => {});
     }
   }, [user?.targetRole]);
@@ -162,7 +154,7 @@ export default function Dashboard() {
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
         <StatCard label="Tasks Due Today"  value={todayTasks.length} delta={completed > 0 ? 0 : -1} color="blue"   icon="calendar" sub={`${completed} of ${todayTasks.length} completed`} />
-        <StatCard label="CGPA"             value={cgpa ? cgpa.toFixed(1) : '—'} unit={cgpa ? "/10" : ""} delta={0} color="green" icon="star" sub={profile?.college ? `${profile.college}` : "Based on subjects"} />
+        <StatCard label="CGPA"             value={cgpa != null && !isNaN(Number(cgpa)) ? Number(cgpa).toFixed(1) : '—'} unit={cgpa != null && !isNaN(Number(cgpa)) ? "/10" : ""} delta={0} color="green" icon="star" sub={profile?.college ? `${profile.college}` : "Based on subjects"} />
         <StatCard label="Active Goals"     value={activeGoals} color="purple" icon="target" sub={`${activeGoals} goal${activeGoals !== 1 ? 's' : ''} in progress`} />
         <StatCard label="Skill Gaps"       value={skillGaps || "—"} color="amber" icon="zap" sub={`vs ${targetRole}`} />
       </div>

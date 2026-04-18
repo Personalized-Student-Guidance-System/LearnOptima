@@ -20,20 +20,24 @@ except Exception:
 sys.path.insert(0, str(Path(__file__).parent))
 from skill_resources_scraper import SkillResourcesScraper
 
+import argparse
+
 def main():
-    if len(sys.argv) < 2:
-        role = "Software Engineer"
-        location = "India"
-    else:
-        role = sys.argv[1]
-        location = sys.argv[2] if len(sys.argv) > 2 else "India"
+    parser = argparse.ArgumentParser(description="CLI roadmap scraper")
+    parser.add_argument("role",     nargs="?", default="Software Engineer")
+    parser.add_argument("location", nargs="?", default="India")
+    parser.add_argument("--refresh", action="store_true")
+    args = parser.parse_args()
     
-    print(f"[CLI] Scraping roadmap for role='{role}', location='{location}'", file=sys.stderr)
+    role = args.role
+    location = args.location
+    
+    print(f"[CLI] Scraping roadmap for role='{role}', location='{location}', refresh={args.refresh}", file=sys.stderr)
     
     scraper = SkillResourcesScraper()
     # Redirect internal scraper logs to stderr so stdout stays valid JSON
     with contextlib.redirect_stdout(sys.stderr):
-        result = scraper.get_dynamic_role_resources(role, location)
+        result = scraper.get_dynamic_role_resources(role, location, refresh=args.refresh)
     
     # Print JSON (stdout for Node.js child_process)
     print(json.dumps(result, ensure_ascii=True, indent=None))

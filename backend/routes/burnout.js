@@ -3,6 +3,7 @@ const auth = require('../middleware/auth');
 const axios = require('axios');
 const StudySession = require('../models/StudySession');
 const StudentProfile = require('../models/StudentProfile');
+const Task = require('../models/Task');
 const mongoose = require('mongoose');
 const { generateJson } = require('../services/geminiService');
 const mlService = require('../services/mlService');
@@ -55,6 +56,124 @@ const ROLE_RECALIBRATION_MAP = {
 
 function normalizeRole(role = '') {
   return String(role).trim().toLowerCase();
+}
+
+function buildActivityAwareIntermediateRoles(targetRole, missingSkills = [], activitySignals = {}) {
+  const normalized = normalizeRole(targetRole);
+  const mapped = ROLE_RECALIBRATION_MAP[normalized] || [];
+
+  const lowConsistency = (activitySignals.consistencyScore || 0) < 45;
+  const lowExecution = (activitySignals.executionScore || 0) < 45;
+  const topMissing = missingSkills.slice(0, 3);
+
+  const dynamicFallback = [
+    {
+      role: 'Project-Based Learner Track',
+      reason: lowExecution
+        ? 'Your recent task completion and study execution suggest that building consistency through smaller project milestones would be more effective than jumping straight to the final role.'
+        : 'A project-first path can help convert current skill gaps into proof of work faster.',
+      nextStep: `Complete one small portfolio project focused on ${topMissing.join(', ') || 'your top missing skills'} in the next 10 days.`,
+    },
+    {
+      role: 'Foundations Sprint',
+      reason: lowConsistency
+        ? 'Your daily learning activity is currently inconsistent, so a shorter structured skill-building phase is more realistic before role targeting.'
+        : 'A focused foundations sprint will strengthen the exact skills your target role still needs.',
+      nextStep: `Spend 5-7 days strengthening ${topMissing[0] || 'core fundamentals'} with one hour of focused practice daily.`,
+    },
+  ];
+
+  return mapped.length ? mapped : dynamicFallback;
+}
+
+async function getLearningActivitySignals(userId) {
+  const oid = new mongoose.Types.ObjectId(userId);
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+  const [sessions, tasks] = await Promise.all([
+    StudySession.find({ userId: oid, startTime: { $gte: fourteenDaysAgo } }).lean(),
+    Task.find({ user: oid, date: { $gte: fourteenDaysAgo } }).lean(),
+  ]);
+
+  const totalMinutes = Math.round(sessions.reduce((sum, s) => sum + ((s.duration || 0) / 60), 0));
+  const activeDays = new Set(sessions.map((s) => new Date(s.startTime).toLocaleDateString('en-CA'))).size;
+  const focusSessions = sessions.filter((s) => (s.duration || 0) >= 25 * 60).length;
+  const completedTasks = tasks.filter((t) => t.completed).length;
+  const totalTasks = tasks.length;
+  const completionRate = totalTasks ? completedTasks / totalTasks : 0;
+
+  const consistencyScore = Math.max(0, Math.min(100,
+    Math.round(
+      (Math.min(activeDays, 10) / 10) * 45
+      + (Math.min(totalMinutes, 1200) / 1200) * 35
+      + (Math.min(focusSessions, 12) / 12) * 20
+    )
+  ));
+
+  const executionScore = Math.max(0, Math.min(100,
+    Math.round(
+      completionRate * 60
+      + (Math.min(completedTasks, 10) / 10) * 25
+      + (Math.min(focusSessions, 10) / 10) * 15
+    )
+  ));
+
+  return {
+    totalMinutes,
+    activeDays,
+    focusSessions,
+    completedTasks,
+    totalTasks,
+    completionRate: Math.round(completionRate * 100),
+    consistencyScore,
+    executionScore,
+  };
+}
+
+function buildDynamicReadiness(targetRole, skillGap = {}, activitySignals = {}, burnoutScore = 0) {
+  const skillReadiness = Math.max(0, Math.min(100, Math.round(skillGap?.match_score || 0)));
+  const consistencyScore = activitySignals.consistencyScore || 0;
+  const executionScore = activitySignals.executionScore || 0;
+  const sustainabilityScore = Math.max(0, 100 - Math.min(100, Math.round(burnoutScore || 0)));
+
+  const readinessScore = Math.max(0, Math.min(100,
+    Math.round(
+      skillReadiness * 0.5
+      + consistencyScore * 0.2
+      + executionScore * 0.2
+      + sustainabilityScore * 0.1
+    )
+  ));
+
+  const missingSkills = skillGap?.missing_skills || [];
+  const suggestedRoles = readinessScore < 70
+    ? buildActivityAwareIntermediateRoles(targetRole, missingSkills, activitySignals)
+    : [];
+
+  let status = 'on-track';
+  if (readinessScore < 45) status = 'recalibrate';
+  else if (readinessScore < 70) status = 'stretch';
+
+  const message = !targetRole
+    ? 'Add a target career role in your profile to unlock goal recalibration guidance.'
+    : status === 'on-track'
+      ? `Your readiness for ${targetRole} is strong because your skills and recent learning activity are aligned.`
+      : status === 'stretch'
+        ? `You are making progress toward ${targetRole}, but your recent skill coverage and learning consistency still need strengthening before it becomes realistic.`
+        : `Your current readiness for ${targetRole} is being held back by both skill gaps and recent learning consistency, so an intermediate path would be smarter right now.`;
+
+  return {
+    readinessScore,
+    currentRole: targetRole,
+    status: targetRole ? status : 'no-target-role',
+    message,
+    suggestedRoles: targetRole ? suggestedRoles : [],
+    matchedSkills: skillGap?.matched_skills || [],
+    missingSkills,
+    activitySignals,
+    skillMatchScore: skillReadiness,
+    sustainabilityScore,
+  };
 }
 
 function getRoleRecalibrationSuggestions(targetRole, readinessScore = 0, missingSkills = []) {
@@ -356,15 +475,14 @@ router.post('/predict', auth, async (req, res) => {
       let readiness = null;
       if (targetRole) {
         try {
-          const skillGap = await mlService.getSkillGap(userSkills, targetRole);
-          const readinessScore = Math.max(0, Math.min(100, Math.round(skillGap?.match_score || 0)));
-          readiness = {
-            ...getRoleRecalibrationSuggestions(targetRole, readinessScore, skillGap?.missing_skills || []),
-            matchedSkills: skillGap?.matched_skills || [],
-            missingSkills: skillGap?.missing_skills || [],
-          };
+          const [skillGap, activitySignals] = await Promise.all([
+            mlService.getSkillGap(userSkills, targetRole),
+            getLearningActivitySignals(userId),
+          ]);
+          readiness = buildDynamicReadiness(targetRole, skillGap, activitySignals, score);
         } catch (e) {
-          readiness = getRoleRecalibrationSuggestions(targetRole, 0, []);
+          const activitySignals = await getLearningActivitySignals(userId).catch(() => ({}));
+          readiness = buildDynamicReadiness(targetRole, { match_score: 0, matched_skills: [], missing_skills: [] }, activitySignals, score);
         }
       } else {
         readiness = getRoleRecalibrationSuggestions(null, 0, []);
@@ -416,15 +534,14 @@ router.post('/predict', auth, async (req, res) => {
     let readiness = null;
     if (targetRole) {
       try {
-        const skillGap = await mlService.getSkillGap(userSkills, targetRole);
-        const readinessScore = Math.max(0, Math.min(100, Math.round(skillGap?.match_score || 0)));
-        readiness = {
-          ...getRoleRecalibrationSuggestions(targetRole, readinessScore, skillGap?.missing_skills || []),
-          matchedSkills: skillGap?.matched_skills || [],
-          missingSkills: skillGap?.missing_skills || [],
-        };
+        const [skillGap, activitySignals] = await Promise.all([
+          mlService.getSkillGap(userSkills, targetRole),
+          getLearningActivitySignals(userId),
+        ]);
+        readiness = buildDynamicReadiness(targetRole, skillGap, activitySignals, score);
       } catch (e) {
-        readiness = getRoleRecalibrationSuggestions(targetRole, 0, []);
+        const activitySignals = await getLearningActivitySignals(userId).catch(() => ({}));
+        readiness = buildDynamicReadiness(targetRole, { match_score: 0, matched_skills: [], missing_skills: [] }, activitySignals, score);
       }
     } else {
       readiness = getRoleRecalibrationSuggestions(null, 0, []);
@@ -459,6 +576,47 @@ function _mkCoachIntro() {
     'Q2) What is your biggest stressor right now?\n' +
     'Q3) Do you have any urgent deadline in the next 7 days? If yes, what and when?'
   );
+}
+
+function _buildFallbackCoachReply(message, metrics = {}) {
+  const normalized = String(message || '').toLowerCase();
+  const stressSignals = [];
+
+  if ((metrics.sleepHours || 0) < 6) stressSignals.push('protect sleep tonight');
+  if ((metrics.studyHours || 0) >= 6) stressSignals.push('reduce study intensity for the next block');
+  if ((metrics.deadlinePressure || 0) >= 7) stressSignals.push('shrink today into only top 3 priorities');
+  if ((metrics.exerciseTime || 0) < 2) stressSignals.push('add a short walk or light movement today');
+
+  const detectedFeeling = normalized.includes('tired')
+    ? 'You sound mentally and physically tired.'
+    : normalized.includes('stress') || normalized.includes('overwhelm')
+      ? 'You sound overloaded right now.'
+      : 'Thanks for sharing how you are feeling.';
+
+  const assistantReply = `${detectedFeeling} For today, focus on ${stressSignals[0] || 'one recovery habit and one realistic study goal'}. I can still help you with a simple recovery plan even if the AI provider is unavailable right now.`;
+
+  return {
+    assistantReply,
+    nextQuestions: [
+      'What is the most urgent deadline this week?',
+      'How many focused study hours can you realistically handle tomorrow without exhaustion?',
+    ],
+    plan: {
+      summary: 'A lightweight fallback plan to reduce overload and restore consistency for the next 7 days.',
+      dailyPlan: [
+        { day: 'Day 1', focus: 'Reset', actions: ['Take one proper break today', 'Sleep at least 7 hours tonight', 'List only top 3 tasks'] },
+        { day: 'Day 2', focus: 'Stabilize', actions: ['Use 2 focused study blocks', 'Take a walk or stretch for 20 minutes', 'Avoid multitasking'] },
+        { day: 'Day 3', focus: 'Catch up calmly', actions: ['Work on the highest-impact deadline first', 'Ask for help early if blocked', 'Stop work on time'] },
+        { day: 'Day 4', focus: 'Recover', actions: ['Keep sleep consistent', 'Do one enjoyable low-stress activity', 'Review progress without self-criticism'] },
+        { day: 'Day 5', focus: 'Build momentum', actions: ['Finish one important task', 'Take planned breaks', 'Check in with a friend or mentor'] },
+        { day: 'Day 6', focus: 'Light workload', actions: ['Do maintenance work only', 'Limit screen fatigue', 'Move your body'] },
+        { day: 'Day 7', focus: 'Weekly reset', actions: ['Review what helped most', 'Prepare a realistic next week plan', 'Protect recovery time'] },
+      ],
+      redFlags: ['repeated sleep below 6 hours', 'daily overwhelm for more than a week', 'skipping meals or breaks'],
+      checkIn: 'At the end of the week, ask: Do I feel more in control and less exhausted than I did today?',
+    },
+    provider: 'fallback',
+  };
 }
 
 async function _getOrCreateProfile(userId) {
@@ -542,8 +700,10 @@ router.post('/coach/message', auth, async (req, res) => {
 
     const prompt = (
       'You are an agentic burnout coach for a student.\n'
-      + 'Goal: ask concise follow-up questions when needed, and produce a practical 7-day plan.\n'
-      + 'Constraints: no medical claims; be supportive; keep reply short; be specific.\n\n'
+      + 'Goal: ask concise follow-up questions only when absolutely needed, and otherwise produce a practical 7-day plan immediately.\n'
+      + 'Constraints: no medical claims; be supportive; keep reply very short; avoid generic therapy-style language; be specific and actionable.\n'
+      + 'Do not say phrases like "I hear you", "thanks for sharing", or long empathy intros. Start directly with action.\n'
+      + 'If the user already mentions feeling overwhelmed/tired/stressed plus at least one deadline or workload issue, that is enough information to give a first plan now.\n\n'
       + `User metrics (may be incomplete): ${JSON.stringify(metrics)}\n\n`
       + 'Conversation so far:\n'
       + lastMsgs
@@ -551,7 +711,15 @@ router.post('/coach/message', auth, async (req, res) => {
       + 'If you have enough info, output a 7-day plan. Otherwise output nextQuestions.'
     );
 
-    const ai = await generateJson({ prompt, schemaHint, model: 'gemini-1.5-flash', temperature: 0.3 });
+    let ai;
+    let provider = 'gemini';
+    try {
+      ai = await generateJson({ prompt, schemaHint, model: 'gemini-2.5-flash', temperature: 0.3 });
+    } catch (aiErr) {
+      console.error('Burnout coach AI fallback triggered:', aiErr.response?.data || aiErr.message);
+      ai = _buildFallbackCoachReply(message, metrics);
+      provider = ai.provider || 'fallback';
+    }
 
     const reply = String(ai.assistantReply || '').trim() || 'Thanks—tell me a bit more so I can tailor a plan.';
     _appendCoachMessage(profile, 'assistant', reply);
@@ -572,14 +740,34 @@ router.post('/coach/message', auth, async (req, res) => {
       nextQuestions: Array.isArray(ai.nextQuestions) ? ai.nextQuestions : [],
       plan: profile.burnoutCoach.plan || null,
       messages: _latestMessages(profile),
-      provider: 'gemini',
+      provider,
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('Coach message hard failure:', err.response?.data || err.message);
+
+    const fallback = _buildFallbackCoachReply(req.body?.message || '', {});
+    return res.json({
+      threadId: `fallback_${req.user?.id || 'user'}_${Date.now()}`,
+      stage: 'planned',
+      assistantReply: fallback.assistantReply,
+      nextQuestions: fallback.nextQuestions,
+      plan: fallback.plan,
+      messages: [
+        ...(req.body?.message ? [{ role: 'user', content: String(req.body.message), createdAt: new Date() }] : []),
+        { role: 'assistant', content: fallback.assistantReply, createdAt: new Date() },
+      ],
+      provider: 'fallback',
+      error: err.message,
+    });
   }
 });
 
 module.exports = router;
+
+
+
+
+
 
 
 
