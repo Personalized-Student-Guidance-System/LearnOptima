@@ -420,14 +420,49 @@ router.get('/checklist/:checklistId', auth, async (req, res) => {
 // API: Update checklist item
 router.post('/checklist/item', auth, async (req, res) => {
   try {
-    const { role, itemKey, isChecked } = req.body;
+    const { role, itemKey, isChecked, skillName } = req.body;
     const userId = req.user.id;
 
     const checklist = await getOrCreateChecklist(userId, role);
     checklist.items.set(itemKey, isChecked);
     await checklist.save();
 
-    res.json({ success: true, items: Object.fromEntries(checklist.items) });
+    // ── Auto-sync to Profile & Skill Gap ─────────────────────────────────────
+    // Extract skill label: itemKey format is "PhaseTitle-SkillName"
+    // Use the explicitly passed skillName first, then fall back to parsing itemKey
+    const rawSkill = skillName || (itemKey ? itemKey.split('-').slice(1).join(' ').trim() : '');
+    if (rawSkill) {
+      const profile = await StudentProfile.findOne({ userId });
+      if (profile) {
+        const allSkills = [
+          ...(profile.extractedSkills || []),
+          ...(profile.extraSkills || []),
+        ].map(s => s.toLowerCase());
+
+        if (isChecked && !allSkills.includes(rawSkill.toLowerCase())) {
+          // Add to extraSkills when ticked
+          await StudentProfile.findOneAndUpdate(
+            { userId },
+            { $addToSet: { extraSkills: rawSkill } },
+            { new: true }
+          );
+          console.log(`[Career Checklist] ✓ Added "${rawSkill}" to profile for user ${userId}`);
+        } else if (!isChecked) {
+          // Remove from extraSkills when un-ticked (if it was not in resume)
+          const inResume = (profile.extractedSkills || []).map(s => s.toLowerCase());
+          if (!inResume.includes(rawSkill.toLowerCase())) {
+            await StudentProfile.findOneAndUpdate(
+              { userId },
+              { $pull: { extraSkills: rawSkill } },
+            );
+            console.log(`[Career Checklist] ✗ Removed "${rawSkill}" from profile for user ${userId}`);
+          }
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    res.json({ success: true, items: Object.fromEntries(checklist.items), skill: rawSkill });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

@@ -497,26 +497,27 @@ class DynamicSkillGapAnalyzer:
                     freq_map[name] = int(score * 20) + 100 
                     level_map[name] = s.get("level", "intermediate")
             
-            # B) SUPPLEMENT WITH MODERN TECH (Secondary/Market-only)
-            print(f"[SkillGap] 🌐 Scraping modern market tools for '{target_role}'...")
-            raw_text = ""
-            try:
-                raw_naukri   = _scrape_naukri(target_role, location)
-                raw_linkedin = _scrape_linkedin(target_role, location)
-                raw_text = f"{raw_naukri} {raw_linkedin}"
-            except Exception as e:
-                print(f"[SkillGap] Scraping warning: {e}")
+            # B) SUPPLEMENT WITH SCRAPING ONLY IF O*NET FAILED
+            if len(onet_list) < 5:
+                print(f"[SkillGap] 🌐 O*NET had insufficient data, supplementing via Scraping for '{target_role}'...")
+                raw_text = ""
+                try:
+                    raw_naukri   = _scrape_naukri(target_role, location)
+                    raw_linkedin = _scrape_linkedin(target_role, location)
+                    raw_text = f"{raw_naukri} {raw_linkedin}"
+                except Exception as e:
+                    print(f"[SkillGap] Scraping warning: {e}")
 
-            if len(raw_text) > 200:
-                 scraped_skills_raw = extract_skills_from_text(raw_text)
-                 for sname, count in scraped_skills_raw.items():
-                     name = sname.lower().strip()
-                     if name in freq_map:
-                         freq_map[name] += count
-                     else:
-                         if count > 4:
-                            freq_map[name] = count
-                            level_map[name] = "beginner"
+                if len(raw_text) > 200:
+                     scraped_skills_raw = extract_skills_from_text(raw_text)
+                     for sname, count in scraped_skills_raw.items():
+                         name = sname.lower().strip()
+                         if name in freq_map:
+                             freq_map[name] += count
+                         else:
+                             if count > 4:
+                                freq_map[name] = count
+                                level_map[name] = "beginner"
             
             # C) CORE SEED BLEND
             seed_skills = _role_seed_skills(target_role)
@@ -590,10 +591,34 @@ class DynamicSkillGapAnalyzer:
         high_gaps = priority.get("high_priority", missing[:8])
         
         top_5_enriched = []
+        
+        def _dyn_desc(sk: str) -> str:
+            sl = sk.lower()
+            if any(x in sl for x in ['sec', 'hack', 'siem', 'soc', 'firewall', 'crypt']):
+                return f"Crucial mechanism for defending organizational networks, mitigating vulnerabilities, and tracking threats in a {target_role} environment."
+            if any(x in sl for x in ['cloud', 'aws', 'azure', 'gcp', 'docker', 'kube']):
+                return f"Cloud/DevOps competency required for deploying, scaling, and maintaining modern infrastructure as a {target_role}."
+            if any(x in sl for x in ['data', 'sql', 'analy', 'math', 'stat']):
+                return f"Data manipulation capable of mining, processing, and evaluating insights within {target_role} workflows."
+            if any(x in sl for x in ['react', 'node', 'js', 'html', 'css', 'web']):
+                return f"Frontend or backend framework mastery to build responsive user interfaces and robust APIs."
+            return f"A core foundational competency heavily requested by recruiters hiring for {target_role}."
+            
+        def _dyn_rec(sk: str) -> str:
+            sl = sk.lower()
+            if any(x in sl for x in ['sec', 'hack', 'siem', 'soc', 'firewall']):
+                return f"Use TryHackMe or build a local VM lab to practice hands-on {sk} exercises."
+            if any(x in sl for x in ['cloud', 'aws', 'azure', 'gcp', 'docker']):
+                return f"Architect and deploy a sample application utilizing {sk} on a free-tier platform."
+            if any(x in sl for x in ['data', 'sql', 'analy']):
+                return f"Publish a Jupyter notebook analyzing public datasets purely via {sk}."
+            if any(x in sl for x in ['react', 'node', 'js', 'web']):
+                return f"Build a clone of a popular SaaS tool to demonstrate real-world {sk} architecture."
+            return f"Document a small pet project showing practical implementation of {sk} on your GitHub."
+
         for sname in high_gaps[:5]:
             meta = COMMON_SKILL_METADATA.get(sname.lower(), {})
             if not meta:
-                # Try simple fuzzy match for sub-skills
                 for key, val in COMMON_SKILL_METADATA.items():
                     if key in sname.lower() or sname.lower() in key:
                         meta = val
@@ -605,8 +630,8 @@ class DynamicSkillGapAnalyzer:
                 "priority_score": freq_map.get(sname.lower(), 70),
                 "interview_frequency": min(95, freq_map.get(sname.lower(), 65) + 10),
                 "time_to_proficiency_days": meta.get("time", 30),
-                "description": meta.get("desc", f"Fundamental {target_role} skill identified in live job market analysis."),
-                "recommendation": meta.get("rec", f"Include {sname} in your technical portfolio or projects.")
+                "description": meta.get("desc", _dyn_desc(sname)),
+                "recommendation": meta.get("rec", _dyn_rec(sname))
             })
 
         result = {

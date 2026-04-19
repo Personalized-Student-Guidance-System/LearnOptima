@@ -82,6 +82,7 @@ export default function CareerRoadmap() {
 
   const [userProfile, setUserProfile] = useState(null);
   const [role, setRole] = useState(null);
+  const [targetRoles, setTargetRoles] = useState([]);
   const [availableRoles, setAvailableRoles] = useState(DEFAULT_ROLES);
   const [data, setData] = useState(null);  // full API response
   const [checked, setChecked] = useState({});
@@ -89,6 +90,12 @@ export default function CareerRoadmap() {
   const [loading, setLoading] = useState(true);
   const [loadingRoles, setLoadingRoles] = useState(false);
   const [jobRoles, setJobRoles] = useState([]);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
 
   // ── Load profile on mount ─────────────────────────────────────────────────
   useEffect(() => {
@@ -99,6 +106,11 @@ export default function CareerRoadmap() {
         setUserProfile(res.data);
         if (res.data?.availableRoles?.length) setAvailableRoles(res.data.availableRoles);
         if (res.data?.targetRole) setRole(res.data.targetRole);
+        if (res.data?.targetRoles?.length) {
+          setTargetRoles(res.data.targetRoles);
+        } else if (res.data?.targetRole) {
+          setTargetRoles([res.data.targetRole]);
+        }
       } catch (err) {
         console.error('Failed to load profile:', err);
       } finally {
@@ -164,8 +176,16 @@ export default function CareerRoadmap() {
     const key = `${phaseKey}-${item}`;
     setChecked((prev) => {
       const next = { ...prev, [key]: !prev[key] };
+      const nowChecked = next[key];
       setSaving((s) => ({ ...s, [key]: true }));
-      axios.post('/career/checklist/item', { role, itemKey: key, isChecked: next[key] })
+      axios.post('/career/checklist/item', { role, itemKey: key, isChecked: nowChecked, skillName: item })
+        .then(() => {
+          if (nowChecked) {
+            showToast(`✓ "${item}" added to your Profile skills!`);
+          } else {
+            showToast(`"${item}" removed from Profile skills.`, 'info');
+          }
+        })
         .catch((err) => console.error('Checklist save error:', err))
         .finally(() => setSaving((s) => ({ ...s, [key]: false })));
       return next;
@@ -222,18 +242,29 @@ export default function CareerRoadmap() {
           <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: G.text }}>
             Career Roadmap
           </h1>
-          <p style={{ fontSize: 12, color: G.text2, marginTop: 2 }}>
-            Your personalized path to become a <strong>{role}</strong>
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+            <span style={{ fontSize: 13, color: G.text2, fontWeight: 600 }}>Target Role:</span>
+            <select
+              value={role || ''}
+              onChange={(e) => handleSelectRole(e.target.value)}
+              style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${G.border}`, background: G.bg2, fontSize: 13, fontWeight: 700, color: G.blue, cursor: 'pointer', outline: 'none' }}
+            >
+              {targetRoles.length > 0 ? targetRoles.map(r => (
+                <option key={r} value={r}>{r}</option>
+              )) : (
+                <option value={role}>{role}</option>
+              )}
+            </select>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => navigate('/profile')}
+              style={{ marginLeft: 6, padding: '5px 10px', fontSize: 11 }}
+            >
+              Edit roles →
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={() => navigate('/profile')}
-          style={{ marginTop: 2 }}
-        >
-          Change Role via Profile
-        </button>
       </div>
 
       {/* Live job listings */}
@@ -273,7 +304,7 @@ export default function CareerRoadmap() {
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: G.blueBg, color: G.blue, borderRadius: 8, fontSize: 12, border: `1px solid ${G.blueBd}` }}>
             <span className="spinner" style={{ width: 14, height: 14, border: '2px solid', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-            🤖 Checking DB cache or AI Generating Custom Pipeline (This may take 10-20 seconds for unseen roles)...
+            Analyzing your profile and generating personalized roadmap...
           </div>
           <SkeletonPhaseCard count={6} />
         </div>
@@ -296,6 +327,29 @@ export default function CareerRoadmap() {
               onToggle={handleToggle}
             />
           ))}
+        </div>
+      )}
+
+      {/* ── Toast Notification ──────────────────────────────────────── */}
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 28, right: 28, zIndex: 9999,
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '12px 18px', borderRadius: 10,
+          background: '#111827', color: '#fff',
+          fontSize: 13, fontWeight: 600,
+          boxShadow: '0 8px 30px rgba(0,0,0,0.25)',
+          maxWidth: 360,
+          animation: 'toastSlideIn 0.25s cubic-bezier(0.16,1,0.3,1) both',
+        }}>
+          <style>{`@keyframes toastSlideIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}`}</style>
+          <span style={{
+            width: 22, height: 22, borderRadius: '50%',
+            background: toast.type === 'info' ? '#6366f1' : '#22c55e',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 12, fontWeight: 800, flexShrink: 0,
+          }}>{toast.type === 'info' ? '−' : '✓'}</span>
+          {toast.msg}
         </div>
       )}
     </div>

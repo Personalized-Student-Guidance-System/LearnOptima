@@ -65,9 +65,9 @@ function ScoreArc({ score, color, size = 120 }) {
         style={{ transition: 'stroke-dasharray 0.9s ease' }}
       />
       <text x={size / 2} y={size / 2 - 4} textAnchor="middle" dominantBaseline="middle"
-        style={{ fontSize: 24, fontWeight: 800, fill: color }}>{score}</text>
-      <text x={size / 2} y={size / 2 + 16} textAnchor="middle" dominantBaseline="middle"
-        style={{ fontSize: 9, fontWeight: 600, fill: G.text3 }}>MATCH %</text>
+        style={{ fontSize: 32, fontWeight: 900, fill: color, filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.15))' }}>{score}</text>
+      <text x={size / 2} y={size / 2 + 18} textAnchor="middle" dominantBaseline="middle"
+        style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.05em', fill: G.text2 }}>MATCH</text>
     </svg>
   );
 }
@@ -75,12 +75,15 @@ function ScoreArc({ score, color, size = 120 }) {
 function StatPill({ label, val, color, sub }) {
   return (
     <div style={{
-      flex: 1, minWidth: 80, padding: '12px 10px', borderRadius: 10,
-      background: G.bg, border: `1px solid ${G.border}`, textAlign: 'center',
-    }}>
-      <div style={{ fontSize: 22, fontWeight: 800, color: color || G.text, lineHeight: 1 }}>{val}</div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: G.text, marginTop: 4 }}>{label}</div>
-      {sub && <div style={{ fontSize: 10, color: G.text3, marginTop: 2 }}>{sub}</div>}
+      flex: 1, minWidth: 90, padding: '16px 12px', borderRadius: 14,
+      background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(10px)',
+      border: '1px solid rgba(255,255,255,0.8)', textAlign: 'center',
+      boxShadow: '0 4px 15px rgba(0,0,0,0.02)',
+      transition: 'transform 0.2s ease',
+    }} className="sg-chip">
+      <div style={{ fontSize: 26, fontWeight: 900, color: color || G.text, lineHeight: 1, textShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>{val}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: G.text, marginTop: 8, letterSpacing: '0.02em' }}>{label}</div>
+      {sub && <div style={{ fontSize: 10, color: G.text2, marginTop: 2, fontWeight: 500 }}>{sub}</div>}
     </div>
   );
 }
@@ -89,14 +92,13 @@ function StatPill({ label, val, color, sub }) {
 function ScrapingLoader({ role }) {
   const [step, setStep] = useState(0);
   const steps = [
-    { icon: '🌐', text: `Scraping Naukri job listings for "${role}"…` },
-    { icon: '🔗', text: `Scraping LinkedIn postings for "${role}"…` },
-    { icon: '🤖', text: 'Regex NLP extracting skills from job descriptions…' },
-    { icon: '📐', text: 'Semantic embedding & cosine similarity matching…' },
-    { icon: '🎯', text: 'Prioritizing gaps by interview frequency…' },
+    { icon: '🔍', text: `Analyzing current job listings for "${role}"…` },
+    { icon: '⚡', text: `Comparing your skills against industry requirements…` },
+    { icon: '📈', text: `Identifying high-impact learning opportunities…` },
+    { icon: '✨', text: `Building your personalized skill matrix…` }
   ];
   useEffect(() => {
-    const t = setInterval(() => setStep(s => (s + 1) % steps.length), 2200);
+    const t = setInterval(() => setStep(s => (s + 1) % steps.length), 2500);
     return () => clearInterval(t);
   }, []);
 
@@ -107,32 +109,31 @@ function ScrapingLoader({ role }) {
     }}>
       <style>{`
         @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
         @keyframes fadeStep{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
       `}</style>
-      {/* Outer ring */}
-      <div style={{ position: 'relative', width: 64, height: 64 }}>
+      <div style={{ position: 'relative', width: 80, height: 80 }}>
         <div style={{
-          width: 64, height: 64, borderRadius: '50%',
-          border: `3px solid ${G.border2}`,
+          width: 80, height: 80, borderRadius: '50%',
+          border: `4px solid ${G.border2}`,
           borderTopColor: G.blue,
-          animation: 'spin 0.9s linear infinite',
+          borderLeftColor: G.blue,
+          animation: 'spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite',
           position: 'absolute',
         }} />
         <div style={{
           position: 'absolute', inset: 0, display: 'flex',
-          alignItems: 'center', justifyContent: 'center', fontSize: 24,
+          alignItems: 'center', justifyContent: 'center', fontSize: 32,
         }}>{steps[step].icon}</div>
       </div>
 
       <div style={{ textAlign: 'center', maxWidth: 340 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: G.text, marginBottom: 6 }}>
-          Analyzing Live Job Market
+        <div style={{ fontSize: 16, fontWeight: 800, color: G.text, marginBottom: 6, letterSpacing: '-0.02em' }}>
+          Generating Analysis
         </div>
         <div
           key={step}
           style={{
-            fontSize: 13, color: G.text2, animation: 'fadeStep 0.4s ease',
+            fontSize: 14, color: G.text2, animation: 'fadeStep 0.4s ease',
             lineHeight: 1.5, minHeight: 40,
           }}
         >
@@ -140,7 +141,6 @@ function ScrapingLoader({ role }) {
         </div>
       </div>
 
-      {/* Progress dots */}
       <div style={{ display: 'flex', gap: 6 }}>
         {steps.map((_, i) => (
           <div key={i} style={{
@@ -153,8 +153,7 @@ function ScrapingLoader({ role }) {
       </div>
 
       <div style={{ fontSize: 11, color: G.text3, textAlign: 'center', maxWidth: 280 }}>
-        Scraping live job postings + NLP analysis takes ~30–60 seconds.<br />
-        Results are cached for 1 hour.
+        This real-time market analysis safely takes a few seconds.<br />
       </div>
     </div>
   );
@@ -168,42 +167,46 @@ export default function SkillGap() {
   const [aiRec, setAiRec] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [expandedGaps, setExpandedGaps] = useState(false);
+  const [expandedGaps, setExpandedGaps] = useState(true);
   const [newSkill, setNewSkill] = useState('');
   const [activeTab, setActiveTab] = useState('priorities');
-  const prevRoleRef = useRef(null);
   const [selectedRole, setSelectedRole] = useState(user?.targetRole || 'Software Engineer');
+  const [toastMsg, setToastMsg] = useState('');
+  
+  const showToast = (msg) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(''), 3000);
+  };
+  
   const [allRoles, setAllRoles] = useState(
     user?.targetRoles?.length ? user.targetRoles : [user?.targetRole || 'Software Engineer']
   );
-  const [customRoleInput, setCustomRoleInput] = useState('');
-
-  const targetRole = user?.targetRole || 'Software Engineer';
 
   useEffect(() => {
-    const fetchRolesAndLoad = async () => {
+    const initRoles = async () => {
       try {
         const profileRes = await API.getStudentProfile();
         const profile = profileRes.data;
-
-        // Populate the dropdown with all roles from the profile
         const roles = profile.targetRoles?.length
           ? profile.targetRoles
           : [profile.targetRole || 'Software Engineer'];
         setAllRoles(roles);
 
-        // If selectedRole isn't in the list (e.g. first load), reset to primary
         if (!roles.includes(selectedRole)) {
           setSelectedRole(profile.targetRole || roles[0]);
-          return; // the state change above will re-trigger this effect
         }
       } catch (e) {
-        // profile fetch failed — keep current selectedRole
+        // ignore
       }
-      loadAnalysis(selectedRole);
     };
+    initRoles();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    fetchRolesAndLoad();
+  useEffect(() => {
+    if (selectedRole) {
+      loadAnalysis(selectedRole);
+    }
   }, [selectedRole]);
 
   const loadAnalysis = async (role, refresh = false) => {
@@ -231,6 +234,7 @@ export default function SkillGap() {
     try {
       const res = await API.updateSkillLearningQueue(skill, 'add');
       setData(prev => ({ ...prev, learning_queue: res.data.skillsToLearn }));
+      showToast(`Added "${skill}" to learning queue`);
     } catch (err) { console.error(err); }
   };
 
@@ -238,6 +242,16 @@ export default function SkillGap() {
     try {
       const res = await API.updateSkillLearningQueue(skill, 'remove');
       setData(prev => ({ ...prev, learning_queue: res.data.skillsToLearn }));
+      showToast(`Removed "${skill}" from queue`);
+    } catch (err) { console.error(err); }
+  };
+
+  const markCompleted = async (skill) => {
+    try {
+      const res = await API.updateSkillLearningQueue(skill, 'complete');
+      setData(prev => ({ ...prev, learning_queue: res.data.skillsToLearn }));
+      showToast(`"${skill}" marked complete & added to Profile!`);
+      loadAnalysis(selectedRole, true);
     } catch (err) { console.error(err); }
   };
 
@@ -248,7 +262,7 @@ export default function SkillGap() {
   };
 
   // ─── States ─────────────────────────────────────────────────────────────────
-  if (loading) return <ScrapingLoader role={targetRole} />;
+  if (loading) return <ScrapingLoader role={selectedRole} />;
 
   if (error) return (
     <div style={{ padding: 24 }}>
@@ -263,7 +277,7 @@ export default function SkillGap() {
         <div style={{ fontSize: 11, color: G.text3, marginBottom: 14 }}>
           Make sure Python dependencies (beautifulsoup4, scikit-learn) are installed.
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => loadAnalysis(targetRole)}>
+        <button className="btn btn-primary btn-sm" onClick={() => loadAnalysis(selectedRole)}>
           Retry
         </button>
       </div>
@@ -272,7 +286,7 @@ export default function SkillGap() {
 
   if (!data) return (
     <div style={{ padding: 24, color: G.text2 }}>
-      No data returned. <button className="btn btn-secondary btn-sm" onClick={() => loadAnalysis(targetRole)}>Retry</button>
+      No data returned. <button className="btn btn-secondary btn-sm" onClick={() => loadAnalysis(selectedRole)}>Retry</button>
     </div>
   );
 
@@ -298,14 +312,52 @@ export default function SkillGap() {
   return (
     <div className="page-enter" style={{ padding: '24px 28px', maxWidth: 1200 }}>
       <style>{`
-        @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-        .sg-in{animation:fadeUp 0.35s ease both}
-        .sg-chip{transition:all 0.18s;cursor:pointer}
-        .sg-chip:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,0.1)}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes gradientShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+        @keyframes toastIn{from{opacity:0;transform:translateY(16px) scale(0.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes toastOut{from{opacity:1}to{opacity:0;transform:translateY(10px)}}
+        .sg-in{animation:fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both}
+        .sg-chip{transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1);cursor:pointer}
+        .sg-chip:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 8px 20px rgba(0,0,0,0.08)}
+        .sg-chip:active{transform:scale(0.96)}
         .sg-row:hover{background:${G.bg}!important}
-        .sg-card{transition:border-color 0.2s,box-shadow 0.2s}
-        .sg-card:hover{border-color:${G.border2}!important;box-shadow:0 2px 14px rgba(0,0,0,0.06)!important}
+        .wow-banner {
+          background: linear-gradient(-45deg, #eff4ff, #e0e7ff, #f3e8ff, #fce7f3);
+          background-size: 400% 400%;
+          animation: gradientShift 15s ease infinite;
+          border: 1px solid rgba(255,255,255,0.4);
+          position: relative;
+          overflow: hidden;
+        }
+        .wow-banner::before {
+          content: "";
+          position: absolute; inset: 0;
+          background: radial-gradient(circle at top right, rgba(255,255,255,0.7) 0%, transparent 60%);
+          pointer-events: none;
+        }
       `}</style>
+
+      {/* ── Toast Notification ─────────────────────────────────────────────── */}
+      {toastMsg && (
+        <div style={{
+          position: 'fixed', bottom: 28, right: 28, zIndex: 9999,
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '12px 18px', borderRadius: 10,
+          background: '#111827', color: '#fff',
+          fontSize: 13, fontWeight: 600,
+          boxShadow: '0 8px 30px rgba(0,0,0,0.25)',
+          animation: 'toastIn 0.25s cubic-bezier(0.16,1,0.3,1) both',
+          maxWidth: 320,
+        }}>
+          <span style={{
+            width: 22, height: 22, borderRadius: '50%',
+            background: '#22c55e', display: 'inline-flex',
+            alignItems: 'center', justifyContent: 'center',
+            fontSize: 12, fontWeight: 800, flexShrink: 0,
+          }}>✓</span>
+          {toastMsg}
+        </div>
+      )}
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
@@ -373,8 +425,8 @@ export default function SkillGap() {
       </div>
 
       {/* ── Score Banner ─────────────────────────────────────────────────── */}
-      <div className="card sg-in" style={{ marginBottom: 20, padding: '20px 24px' }}>
-        <div style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="card sg-in wow-banner" style={{ marginBottom: 24, padding: '24px 28px', borderRadius: 16, boxShadow: '0 8px 30px rgba(0,0,0,0.04)' }}>
+        <div style={{ display: 'flex', gap: 28, alignItems: 'center', flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
           {/* Arc */}
           <div style={{ flexShrink: 0, textAlign: 'center' }}>
             <ScoreArc score={score} color={scoreColor} size={120} />
@@ -420,15 +472,16 @@ export default function SkillGap() {
         </div>
 
         {/* Overall match bar */}
-        <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${G.border}` }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: G.text2 }}>
-              Match for <span style={{ color: G.blue }}>{targetRole}</span>
+        {/* Overall match bar */}
+        <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid rgba(0,0,0,0.06)`, position: 'relative', zIndex: 1, width: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: G.text }}>
+              Total Readiness for <span style={{ color: G.blue }}>{selectedRole}</span>
             </span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor }}>{score}%</span>
+            <span style={{ fontSize: 13, fontWeight: 900, color: scoreColor }}>{score}%</span>
           </div>
-          <div style={{ height: 7, borderRadius: 4, background: G.bg2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${score}%`, background: scoreColor, borderRadius: 4, transition: 'width 0.8s ease' }} />
+          <div style={{ height: 10, borderRadius: 99, background: 'rgba(0,0,0,0.06)', overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)' }}>
+            <div style={{ height: '100%', width: `${score}%`, background: `linear-gradient(90deg, ${scoreColor}cc, ${scoreColor})`, borderRadius: 99, transition: 'width 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
           </div>
         </div>
       </div>
@@ -461,63 +514,66 @@ export default function SkillGap() {
 
       {
         expandedGaps && (
-          <div className="sg-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-            {/* Matched */}
-            <div className="card" style={{ overflow: 'hidden' }}>
-              <div style={{ padding: '10px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.green}09` }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: G.green }}>
-                  ✅ Your Strengths ({matched.length})
+          <div className="sg-in" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.2fr)', gap: 20, marginBottom: 20 }}>
+            {/* Student Skills */}
+            <div className="card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '14px 18px', borderBottom: `1px solid ${G.border}`, background: `${G.blueBg}` }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: G.blue, letterSpacing: '-0.02em' }}>
+                  🧑‍💻 Your Active Portfolio
                 </span>
+                <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>Skills identified on your profile</p>
               </div>
-              <div style={{ padding: '14px 16px', display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+              <div style={{ padding: '16px 18px', display: 'flex', flexWrap: 'wrap', gap: 8, flex: 1, alignContent: 'flex-start' }}>
                 {matched.length === 0
-                  ? <p style={{ fontSize: 12, color: G.text3, margin: 0 }}>No matched skills yet — add skills in your Profile.</p>
-                  : matched.slice(0, 14).map(s => (
+                  ? <p style={{ fontSize: 12, color: G.text3, margin: 0 }}>You haven't logged any skills relevant to this role yet.</p>
+                  : matched.map(s => (
                     <span key={s.skill} style={{
-                      padding: '4px 10px', borderRadius: 99, fontSize: 11, fontWeight: 500,
-                      background: G.greenBg, color: G.green, border: `1px solid ${G.greenBd}`,
-                    }}>{s.skill}</span>
-                  ))
-                }
-                {matched.length > 14 && (
-                  <span style={{ padding: '4px 10px', borderRadius: 99, fontSize: 11, background: G.bg2, color: G.text3, border: `1px solid ${G.border}` }}>
-                    +{matched.length - 14} more
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Missing */}
-            <div className="card" style={{ overflow: 'hidden' }}>
-              <div style={{ padding: '10px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.red}09` }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: G.red }}>
-                  📌 To Learn ({missing.length})
-                </span>
-              </div>
-              <div style={{ padding: '14px 16px', display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-                {missing.length === 0
-                  ? <p style={{ fontSize: 12, color: G.text3, margin: 0 }}>No gaps! You're well covered for {targetRole}.</p>
-                  : missing.slice(0, 14).map(s => (
-                    <span key={s.skill}
-                      className="sg-chip"
-                      onClick={() => addToQueue(s.skill)}
-                      title="Click to add to learning queue"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        padding: '4px 10px', borderRadius: 99, fontSize: 11, fontWeight: 500,
-                        background: urgencyBg[s.urgency] || G.redBg,
-                        color: urgencyColor[s.urgency] || G.red,
-                        border: `1px solid ${urgencyBd[s.urgency] || G.redBd}`,
-                      }}>
-                      <UrgencyDot urgency={s.urgency} />
-                      {s.skill} <span style={{ opacity: 0.6, fontSize: 10 }}>+</span>
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                      background: `${G.green}15`, color: G.green, border: `1px solid ${G.green}30`,
+                    }}>
+                      {s.skill}
                     </span>
                   ))
                 }
               </div>
+            </div>
+
+            {/* Industry Requirements */}
+            <div className="card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '14px 18px', borderBottom: `1px solid ${G.border}`, background: `${G.purple}08` }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: G.purple, letterSpacing: '-0.02em' }}>
+                  🏢 Industry Requirements
+                </span>
+                <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>Derived from live job postings & O*NET data</p>
+              </div>
+              <div style={{ padding: '16px 18px', display: 'flex', flexWrap: 'wrap', gap: 8, flex: 1, alignContent: 'flex-start' }}>
+                {(data.required_skills || []).map(skillName => {
+                  const isMatched = matched.some(m => m.skill.toLowerCase() === skillName.toLowerCase());
+                  
+                  return (
+                    <span key={skillName}
+                      onClick={() => !isMatched && addToQueue(skillName)}
+                      title={!isMatched ? "Click to add to learning queue" : "Already matched"}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                        background: isMatched ? `${G.green}15` : G.surface,
+                        color: isMatched ? G.green : G.text,
+                        border: `1px solid ${isMatched ? `${G.green}30` : G.border2}`,
+                        cursor: isMatched ? 'default' : 'pointer',
+                        boxShadow: isMatched ? 'none' : '0 1px 2px rgba(0,0,0,0.05)',
+                      }}>
+                      {isMatched ? <span style={{ fontSize: 10 }}>✓</span> : <span style={{ color: G.red, fontSize: 10 }}>📌</span>}
+                      {skillName}
+                      {!isMatched && <span style={{ color: G.blue, fontSize: 14, fontWeight: 800, marginLeft: 2, marginRight: -2 }}>+</span>}
+                    </span>
+                  )
+                })}
+              </div>
               {missing.length > 0 && (
-                <div style={{ padding: '0 16px 10px', fontSize: 10, color: G.text3 }}>
-                  Click a skill to add it to your learning queue
+                <div style={{ padding: '0 18px 12px', fontSize: 10, color: G.text3, fontWeight: 600 }}>
+                  * Non-checked skills represent your gaps. Click any to add to queue.
                 </div>
               )}
             </div>
@@ -526,52 +582,63 @@ export default function SkillGap() {
       }
 
       {/* ── Learning Queue ───────────────────────────────────────────────── */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div style={{ padding: '12px 16px', borderBottom: `1px solid ${G.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>My Learning Queue</h3>
-            <p style={{ fontSize: 11, color: G.text2, margin: 0 }}>Skills you're actively working on for {targetRole}</p>
-          </div>
+      <div style={{
+        marginBottom: 16, padding: '10px 14px', borderRadius: 10,
+        background: G.surface, border: `1px solid ${G.border}`,
+        display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap',
+      }}>
+        {/* Label + count */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: G.text }}>📚 Queue</span>
           {learningQueue.length > 0 && (
-            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: G.blueBg, color: G.blue, border: `1px solid ${G.blueBd}` }}>
-              {learningQueue.length} skill{learningQueue.length > 1 ? 's' : ''}
-            </span>
+            <span style={{
+              fontSize: 10, padding: '1px 7px', borderRadius: 99,
+              background: G.blueBg, color: G.blue, border: `1px solid ${G.blueBd}`,
+              fontWeight: 700,
+            }}>{learningQueue.length}</span>
           )}
         </div>
-        <div style={{ padding: '14px 16px' }}>
-          {learningQueue.length > 0 ? (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
-              {learningQueue.map(s => (
-                <span key={s} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '4px 10px', borderRadius: 99, fontSize: 11, fontWeight: 500,
-                  background: G.blueBg, color: G.blue, border: `1px solid ${G.blueBd}`,
-                }}>
-                  {s}
-                  <span onClick={() => removeFromQueue(s)} style={{
-                    cursor: 'pointer', width: 14, height: 14, borderRadius: '50%',
-                    background: `${G.blue}20`, display: 'inline-flex',
-                    alignItems: 'center', justifyContent: 'center', fontSize: 9,
-                  }}>✕</span>
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p style={{ fontSize: 12, color: G.text3, margin: '0 0 12px' }}>
-              Queue empty — click missing skills above to add, or type below.
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              className="input"
-              placeholder={`Add a skill for ${targetRole}…`}
-              value={newSkill}
-              onChange={e => setNewSkill(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addCustomSkill()}
-              style={{ fontSize: 12 }}
-            />
-            <button className="btn btn-primary btn-sm" onClick={addCustomSkill}>Add</button>
+
+        <div style={{ width: 1, height: 20, background: G.border, flexShrink: 0 }} />
+
+        {/* Skill pills */}
+        {learningQueue.length > 0 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flex: 1 }}>
+            {learningQueue.map(s => (
+              <span key={s} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                background: G.blueBg, color: G.blue, border: `1px solid ${G.blueBd}`,
+              }}>
+                {s}
+                <span
+                  onClick={() => markCompleted(s)}
+                  title="Mark complete → moves to Profile skills"
+                  style={{ cursor: 'pointer', color: G.green, fontWeight: 800, fontSize: 12, marginLeft: 2 }}
+                >✓</span>
+                <span
+                  onClick={() => removeFromQueue(s)}
+                  title="Remove"
+                  style={{ cursor: 'pointer', color: G.text3, fontWeight: 700, fontSize: 11 }}
+                >✕</span>
+              </span>
+            ))}
           </div>
+        ) : (
+          <span style={{ fontSize: 12, color: G.text3, flex: 1 }}>Empty — click any skill gap below to add</span>
+        )}
+
+        {/* Add custom */}
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          <input
+            className="input"
+            placeholder="Add skill…"
+            value={newSkill}
+            onChange={e => setNewSkill(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addCustomSkill()}
+            style={{ fontSize: 12, padding: '5px 10px', width: 140, height: 30 }}
+          />
+          <button className="btn btn-primary btn-sm" onClick={addCustomSkill} style={{ height: 30, padding: '0 12px', fontSize: 12 }}>+ Add</button>
         </div>
       </div>
 
@@ -603,7 +670,7 @@ export default function SkillGap() {
               <div style={{ padding: '12px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.amber}08`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: G.amber }}>
-                    Top Priority Skills for {targetRole}
+                    Top Priority Skills for {selectedRole}
                   </h3>
                   <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>
                     Scraped from live Naukri / LinkedIn job postings · ordered by interview frequency
@@ -622,7 +689,7 @@ export default function SkillGap() {
                       <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: G.green }}>All priorities covered!</div>
                       <p style={{ fontSize: 12, color: G.text2, margin: '6px 0 0' }}>
-                        You already have all the required skills for {targetRole} based on live job data.
+                        You already have all the required skills for {selectedRole} based on live job data.
                       </p>
                     </div>
                   ) : (
@@ -632,79 +699,57 @@ export default function SkillGap() {
                       <p style={{ fontSize: 12, color: G.text3, margin: '6px 0 12px' }}>
                         The ML analyzer couldn't extract priorities for this role. Try refreshing.
                       </p>
-                      <button className="btn btn-secondary btn-sm" onClick={() => loadAnalysis(targetRole)}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => loadAnalysis(selectedRole)}>
                         Retry Analysis
                       </button>
                     </div>
                   )
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 12 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {sortedPriorities.map((skill, i) => (
                       <div key={i}
                         className="sg-card sg-chip"
                         onClick={() => addToQueue(skill.skill)}
-                        title="Click to add to queue"
+                        title={`PRO TIP: ${skill.recommendation}\nClick to add to queue`}
                         style={{
-                          padding: 14, borderRadius: 10,
+                          padding: '10px 14px', borderRadius: 8,
                           border: `1px solid ${urgencyBd[skill.urgency] || G.border}`,
                           background: `${urgencyBg[skill.urgency] || G.bg}88`,
+                          display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer'
                         }}>
-                        {/* Rank + badge */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                          <div style={{
-                            width: 26, height: 26, borderRadius: 7,
-                            background: i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#ca8a04' : G.bg2,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 10, fontWeight: 800,
-                            color: i < 3 ? G.white : G.text3,
-                            flexShrink: 0,
-                          }}>#{i + 1}</div>
-                          <UrgencyBadge urgency={skill.urgency || 'Medium'} />
-                        </div>
-
-                        <div style={{ fontSize: 12, fontWeight: 700, color: G.text, marginBottom: 4 }}>
-                          {skill.skill}
-                        </div>
-                        <div style={{ fontSize: 10, color: G.text2, lineHeight: 1.4, marginBottom: 12, height: 28, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                          {skill.description}
-                        </div>
-
-                        {/* Recommendation / Recommendation */}
+                        
+                        {/* Rank */}
                         <div style={{
-                          padding: '8px 10px', borderRadius: 6, background: G.bg2,
-                          border: `1px solid ${G.border}`, marginBottom: 12
-                        }}>
-                          <div style={{ fontSize: 8, fontWeight: 800, color: G.blue, letterSpacing: '0.05em', marginBottom: 2 }}>PRO TIP</div>
-                          <div style={{ fontSize: 10, color: G.text, lineHeight: 1.3, fontWeight: 500 }}>
-                            {skill.recommendation}
+                          width: 24, height: 24, borderRadius: 6,
+                          background: i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#ca8a04' : G.bg2,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 10, fontWeight: 800, color: i < 3 ? G.white : G.text3, flexShrink: 0
+                        }}>#{i + 1}</div>
+                        
+                        {/* Main info */}
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: G.text, display: 'flex', gap: 8, alignItems: 'center' }}>
+                            {skill.skill} <UrgencyBadge urgency={skill.urgency || 'Medium'} />
+                          </div>
+                          <div style={{ fontSize: 11, color: G.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {skill.description}
                           </div>
                         </div>
 
-                        {/* Impact bar */}
-                        <div style={{ marginBottom: 6 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                            <span style={{ fontSize: 9, color: G.text3, fontWeight: 600 }}>IMPACT</span>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: G.text }}>{skill.priority_score || 80}%</span>
+                        {/* Impact + Freq inline */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+                          <div style={{ width: 60 }}>
+                            <div style={{ fontSize: 9, color: G.text3, fontWeight: 600, marginBottom: 2 }}>IMPACT</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <MiniBar value={skill.priority_score || 80} color={urgencyColor[skill.urgency] || G.blue} />
+                              <span style={{ fontSize: 10, fontWeight: 700 }}>{skill.priority_score || 80}%</span>
+                            </div>
                           </div>
-                          <MiniBar value={skill.priority_score || 80} color={urgencyColor[skill.urgency] || G.blue} />
-                        </div>
-
-                        {/* Interview freq bar */}
-                        <div style={{ marginBottom: 10 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                            <span style={{ fontSize: 9, color: G.text3, fontWeight: 600 }}>INTERVIEW FREQ</span>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: G.text }}>{skill.interview_frequency || 75}%</span>
+                          
+                          <div style={{ fontSize: 11, color: G.text3, fontWeight: 600, width: 40, textAlign: 'right' }}>
+                            ~{Math.ceil((skill.time_to_proficiency_days || 30) / 7)}w
                           </div>
-                          <MiniBar value={skill.interview_frequency || 75} color={G.purple} />
-                        </div>
-
-                        <div style={{
-                          paddingTop: 8, borderTop: `1px solid ${urgencyBd[skill.urgency] || G.border}`,
-                          fontSize: 10, color: urgencyColor[skill.urgency] || G.text3,
-                          display: 'flex', justifyContent: 'space-between',
-                        }}>
-                          <span>⏱ ~{Math.ceil((skill.time_to_proficiency_days || 30) / 7)}w</span>
-                          <span>+ Add to queue</span>
+                          <span style={{ color: G.blue, fontSize: 18, fontWeight: 800, paddingLeft: 8 }}>+</span>
                         </div>
                       </div>
                     ))}
@@ -719,7 +764,7 @@ export default function SkillGap() {
                 <div style={{ padding: '10px 16px', borderBottom: `1px solid ${G.border}` }}>
                   <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>Full Ranked Table</h3>
                   <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>
-                    All missing skills ranked for {targetRole} from live job data
+                    All missing skills ranked for {selectedRole} from live job data
                   </p>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
@@ -792,7 +837,7 @@ export default function SkillGap() {
             <div className="card" style={{ overflow: 'hidden', marginBottom: 20 }}>
               <div style={{ padding: '12px 16px', borderBottom: `1px solid ${G.border}`, background: `${G.blue}08` }}>
                 <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: G.blue }}>
-                  🤖 AI-Powered Insights for {targetRole}
+                  🤖 AI-Powered Insights for {selectedRole}
                 </h3>
                 <p style={{ fontSize: 11, color: G.text2, margin: '2px 0 0' }}>
                   Personalized plan based on your skills + live job-market data
@@ -874,6 +919,17 @@ export default function SkillGap() {
           </div>
         )
       }
+
+      {toastMsg && (
+        <div style={{
+          position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)',
+          background: G.text, color: G.white, padding: '12px 24px', borderRadius: 99,
+          fontSize: 13, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          animation: 'fadeUp 0.3s ease'
+        }}>
+          {toastMsg}
+        </div>
+      )}
     </div >
   );
 }

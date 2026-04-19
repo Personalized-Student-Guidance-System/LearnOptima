@@ -12,7 +12,20 @@ const goalSchema = new mongoose.Schema({
     completed: { type: Boolean, default: false }
   }],
   aiAnalysis: String,
-  status: { type: String, enum: ['active', 'completed', 'paused'], default: 'active' },
+  aiDetails: {
+    estTimeline: { type: String, default: 'TBD' },
+    difficulty: { type: String, default: 'Standard' },
+    skillsNeeded: { type: String, default: 'Role specifics' },
+    courses: [String],
+    plan: [String]
+  },
+  progressHistory: [{
+    date: { type: Date, default: Date.now },
+    progress: Number
+  }],
+  status: { type: String, enum: ['not_started', 'in_progress', 'completed', 'stuck'], default: 'not_started' },
+  linkedSkill: { type: String, default: '' },
+  source: { type: String, enum: ['manual', 'auto'], default: 'manual' },
   createdAt: { type: Date, default: Date.now }
 });
 

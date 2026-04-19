@@ -311,23 +311,32 @@ def _is_valid_skill(s: str) -> bool:
     
     # ── Strict immediate reject for highly toxic noise words ──
     strict_bans = {
-        "engineer", "manager", "developer", "senior", "junior", "lead",
-        "scoutit", "wipro", "tcs", "cognizant", "infosys", "fedex", "telekom",
+        "senior", "junior", "lead", "scoutit", "wipro", "tcs", "cognizant", "infosys", "fedex", "telekom",
         "policy", "privacy", "cookie", "agreement", "terms", "rights", "copyright",
         "applicant", "early", "hiring", "jobs", "job", "apply", "actively", "urgently",
-        "division", "maharashtra", "karnataka", "india", "remote", "hybrid",
-        "months", "years", "hours", "weeks", "today", "yesterday", "ago",
-        "staff", "intern", "trainee", "executive", "coordinator", "officer",
+        "division", "months", "years", "hours", "weeks", "today", "yesterday", "ago",
+        "staff", "intern", "trainee", "executive", "coordinator", "officer", "soc", "l1", "l2", "l3",
         "client", "customer", "project", "product", "salary", "benefits",
         "linkedin", "guidelines", "controls", "join", "agree", "volunteer", 
         "level", "mid-senior", "guest", "language", "done", "app", "group", "dhl",
-        "andhra", "pradesh", "company", "clear", "ebay", "srinsoft", "hurdles",
-        "crossing", "inc", "ltd", "pvt", "limited", "naukri", "indeed", "shine"
+        "company", "clear", "ebay", "srinsoft", "hurdles",
+        "crossing", "inc", "ltd", "pvt", "limited", "naukri", "indeed", "shine",
+        "required", "preferred", "minimum", "maximum", "plus", "bonus"
     }
     
+    role_suffixes = ["analyst", "engineer", "developer", "manager", "specialist", "administrator", "scientist", "architect", "consultant"]
+    if any(sl.endswith(s) for s in role_suffixes) or "red team" in sl:
+        return False
+
+    location_bans = {
+        "india", "mumbai", "bangalore", "bengaluru", "pune", "gurugram", "gurgaon", "haryana", 
+        "noida", "chennai", "hyderabad", "delhi", "kolkata", "ahmedabad", "karnataka", "maharashtra",
+        "telangana", "andhra", "pradesh", "usa", "uk", "canada", "remote", "hybrid", "onsite"
+    }
+
     words = sl.split()
     for w in words:
-        if w in strict_bans:
+        if w in strict_bans or w in location_bans:
             return False
 
     # Check if phrase contains ANY stop phrase as a substring

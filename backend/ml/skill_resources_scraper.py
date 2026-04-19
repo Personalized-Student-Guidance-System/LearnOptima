@@ -277,15 +277,107 @@ _TECH_ROLE_HINTS = {
 
 def _is_tech_role(role: str) -> bool:
     rl = normalize_role(role).lower()
-    # Use word boundaries to avoid matching 'police' against nothing, or 'data' in 'foundation'
-    # Actually simpler: check for common tech role keywords as whole words
     tech_keywords = {
-        "engineer", "developer", "scientist", "analyst", "devops", "sre",
-        "frontend", "backend", "fullstack", "software", "ml", "data",
-        "cloud", "security", "blockchain", "android", "ios", "qa", "ux", "ui"
+        "engineer", "developer", "scientist", "devops", "sre",
+        "frontend", "backend", "fullstack", "software", "ml",
+        "cloud", "blockchain", "android", "ios", "qa", "ux", "ui"
     }
     role_words = set(re.findall(r'\w+', rl))
     return any(kw in role_words for kw in tech_keywords)
+
+
+def _is_dsa_coding_role(role: str) -> bool:
+    """Returns True only for roles where DSA/LeetCode coding prep is relevant."""
+    rl = normalize_role(role).lower()
+    coding_keywords = {
+        "software", "developer", "engineer", "devops", "sre",
+        "frontend", "backend", "fullstack", "android", "ios",
+    }
+    # Exclude non-coding roles even if they have 'engineer' in title
+    exclude_keywords = {
+        "security", "cyber", "analyst", "soc", "infosec", "penetration",
+        "hacker", "data scientist", "product", "ux", "ui", "design",
+        "manager", "doctor", "nurse", "lawyer", "accountant", "marketing",
+    }
+    for ex in exclude_keywords:
+        if ex in rl:
+            return False
+    role_words = set(re.findall(r'\w+', rl))
+    return any(kw in role_words for kw in coding_keywords)
+
+
+def _is_cyber_role(role: str) -> bool:
+    rl = normalize_role(role).lower()
+    return any(k in rl for k in [
+        "cyber", "network security", "infosec", "soc analyst",
+        "penetration", "ethical hack", "security analyst", "security engineer",
+    ])
+
+
+def _is_data_role(role: str) -> bool:
+    """Data Scientist, Data Analyst, ML Engineer, AI Engineer."""
+    rl = normalize_role(role).lower()
+    return any(k in rl for k in [
+        "data scientist", "data analyst", "machine learning", "ml engineer",
+        "ai engineer", "data engineer", "analytics engineer",
+    ])
+
+
+def _is_product_role(role: str) -> bool:
+    rl = normalize_role(role).lower()
+    return any(k in rl for k in [
+        "product manager", "product owner", "program manager", "technical pm",
+    ])
+
+
+def _is_design_role(role: str) -> bool:
+    rl = normalize_role(role).lower()
+    return any(k in rl for k in [
+        "ux designer", "ui designer", "ux/ui", "product designer",
+        "graphic designer", "interaction designer", "visual designer",
+    ])
+
+
+def _is_medical_role(role: str) -> bool:
+    rl = normalize_role(role).lower()
+    return any(k in rl for k in [
+        "doctor", "physician", "nurse", "mbbs", "surgeon", "pharmacist",
+        "dentist", "therapist", "healthcare", "medical officer",
+    ])
+
+
+def _is_finance_role(role: str) -> bool:
+    rl = normalize_role(role).lower()
+    return any(k in rl for k in [
+        "financ", "accountant", "chartered accountant", "invest",
+        "banker", "banking", "cfa", "portfolio manager",
+        "financial analyst", "equity analyst",
+    ])
+
+
+def _is_legal_role(role: str) -> bool:
+    rl = normalize_role(role).lower()
+    return any(k in rl for k in [
+        "lawyer", "attorney", "advocate", "legal", "solicitor",
+        "counsel", "paralegal",
+    ])
+
+
+def _is_marketing_role(role: str) -> bool:
+    rl = normalize_role(role).lower()
+    return any(k in rl for k in [
+        "marketing", "digital marketer", "seo", "growth hacker",
+        "brand manager", "content strategist", "social media",
+    ])
+
+
+def _is_operations_role(role: str) -> bool:
+    rl = normalize_role(role).lower()
+    return any(k in rl for k in [
+        "operations", "supply chain", "logistics", "procurement",
+        "hr manager", "human resources", "recruiter", "business analyst",
+        "management consultant",
+    ])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1219,97 +1311,182 @@ def resolve_skills(role: str, location: str = "India", num_jobs: int = 8, refres
 TIERED_RESOURCES: Dict[str, Dict[str, List[Dict]]] = {
     "Python": {
         "beginner":     [{"title": "Python Official Tutorial",         "url": "https://docs.python.org/3/tutorial/"},
+                         {"title": "GFG Python Tutorial",              "url": "https://www.geeksforgeeks.org/python-programming-language-tutorial/"},
                          {"title": "Automate the Boring Stuff (free)", "url": "https://automatetheboringstuff.com/"},
                          {"title": "freeCodeCamp Python",              "url": "https://www.freecodecamp.org/learn/scientific-computing-with-python/"}],
         "intermediate": [{"title": "Real Python",                      "url": "https://realpython.com/"},
+                         {"title": "GFG Python Intermediate",          "url": "https://www.geeksforgeeks.org/python-programming-examples/"},
                          {"title": "Fluent Python (O'Reilly)",         "url": "https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/"}],
-        "advanced":     [{"title": "High Performance Python",          "url": "https://www.oreilly.com/library/view/high-performance-python/9781492055013/"}],
+        "advanced":     [{"title": "High Performance Python",          "url": "https://www.oreilly.com/library/view/high-performance-python/9781492055013/"},
+                         {"title": "GFG Python Advanced Topics",       "url": "https://www.geeksforgeeks.org/advanced-python-tutorials/"}],
     },
     "JavaScript": {
         "beginner":     [{"title": "JavaScript.info",                  "url": "https://javascript.info/"},
+                         {"title": "GFG JavaScript Tutorial",          "url": "https://www.geeksforgeeks.org/javascript/"},
                          {"title": "MDN JavaScript Guide",             "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide"}],
         "intermediate": [{"title": "You Don't Know JS (free)",         "url": "https://github.com/getify/You-Dont-Know-JS"},
-                         {"title": "JavaScript30",                     "url": "https://javascript30.com/"}],
-        "advanced":     [{"title": "Patterns.dev",                     "url": "https://www.patterns.dev/"}],
+                         {"title": "JavaScript30",                     "url": "https://javascript30.com/"},
+                         {"title": "GFG JS Interview Questions",       "url": "https://www.geeksforgeeks.org/javascript-interview-questions-and-answers/"}],
+        "advanced":     [{"title": "Patterns.dev",                     "url": "https://www.patterns.dev/"},
+                         {"title": "GFG JS Advanced Concepts",         "url": "https://www.geeksforgeeks.org/javascript-advanced-topics/"}],
     },
     "TypeScript": {
         "beginner":     [{"title": "TypeScript Handbook",              "url": "https://www.typescriptlang.org/docs/handbook/intro.html"},
+                         {"title": "GFG TypeScript Tutorial",          "url": "https://www.geeksforgeeks.org/typescript/"},
                          {"title": "Total TypeScript – Beginner",      "url": "https://www.totaltypescript.com/tutorials/beginners-typescript"}],
         "intermediate": [{"title": "TypeScript Deep Dive (free)",      "url": "https://basarat.gitbook.io/typescript/"}],
         "advanced":     [{"title": "Total TypeScript – Advanced",      "url": "https://www.totaltypescript.com/workshops/advanced-typescript-patterns"}],
     },
     "React": {
         "beginner":     [{"title": "React Official Docs",              "url": "https://react.dev/learn"},
+                         {"title": "GFG React Tutorial",               "url": "https://www.geeksforgeeks.org/reactjs/"},
                          {"title": "Scrimba Learn React",              "url": "https://scrimba.com/learn/learnreact"}],
-        "intermediate": [{"title": "Epic React by Kent C. Dodds",      "url": "https://epicreact.dev/"}],
+        "intermediate": [{"title": "Epic React by Kent C. Dodds",      "url": "https://epicreact.dev/"},
+                         {"title": "GFG React Interview Questions",    "url": "https://www.geeksforgeeks.org/reactjs-interview-questions-and-answers/"}],
         "advanced":     [{"title": "Patterns.dev – React Patterns",    "url": "https://www.patterns.dev/react"}],
+    },
+    "Node.js": {
+        "beginner":     [{"title": "Node.js Official Guides",          "url": "https://nodejs.org/en/learn/getting-started/introduction-to-nodejs"},
+                         {"title": "GFG Node.js Tutorial",             "url": "https://www.geeksforgeeks.org/nodejs/"}],
+        "intermediate": [{"title": "Node.js Design Patterns",          "url": "https://www.nodejsdesignpatterns.com/"},
+                         {"title": "GFG Express.js Tutorial",          "url": "https://www.geeksforgeeks.org/express-js/"}],
+        "advanced":     [{"title": "Node.js Best Practices",           "url": "https://github.com/goldbergyoni/nodebestpractices"}],
     },
     "SQL": {
         "beginner":     [{"title": "SQLZoo",                           "url": "https://sqlzoo.net/"},
+                         {"title": "GFG SQL Tutorial",                 "url": "https://www.geeksforgeeks.org/sql-tutorial/"},
                          {"title": "Mode SQL Tutorial",                "url": "https://mode.com/sql-tutorial/"}],
-        "intermediate": [{"title": "Use The Index, Luke",              "url": "https://use-the-index-luke.com/"}],
+        "intermediate": [{"title": "Use The Index, Luke",              "url": "https://use-the-index-luke.com/"},
+                         {"title": "GFG SQL Interview Questions",      "url": "https://www.geeksforgeeks.org/sql-interview-questions/"}],
         "advanced":     [{"title": "CMU Database Systems",             "url": "https://15445.courses.cs.cmu.edu/"},
                          {"title": "Designing Data-Intensive Apps",    "url": "https://dataintensive.net/"}],
     },
     "Docker": {
         "beginner":     [{"title": "Docker Official Docs",             "url": "https://docs.docker.com/get-started/"},
+                         {"title": "GFG Docker Tutorial",              "url": "https://www.geeksforgeeks.org/docker-tutorial/"},
                          {"title": "Play with Docker",                 "url": "https://labs.play-with-docker.com/"}],
         "intermediate": [{"title": "Docker Compose Docs",              "url": "https://docs.docker.com/compose/"}],
         "advanced":     [{"title": "BuildKit Advanced Features",       "url": "https://docs.docker.com/build/buildkit/"}],
     },
     "Kubernetes": {
-        "beginner":     [{"title": "Kubernetes Basics",                "url": "https://kubernetes.io/docs/tutorials/kubernetes-basics/"}],
+        "beginner":     [{"title": "Kubernetes Basics",                "url": "https://kubernetes.io/docs/tutorials/kubernetes-basics/"},
+                         {"title": "GFG Kubernetes Tutorial",          "url": "https://www.geeksforgeeks.org/kubernetes-tutorial/"}],
         "intermediate": [{"title": "Kubernetes in Action",             "url": "https://www.manning.com/books/kubernetes-in-action-second-edition"}],
         "advanced":     [{"title": "Production Kubernetes",            "url": "https://www.oreilly.com/library/view/production-kubernetes/9781492092292/"}],
     },
     "AWS": {
-        "beginner":     [{"title": "AWS Cloud Practitioner Essentials","url": "https://explore.skillbuilder.aws/learn/course/external/view/elearning/134/aws-cloud-practitioner-essentials"}],
+        "beginner":     [{"title": "AWS Cloud Practitioner Essentials","url": "https://explore.skillbuilder.aws/learn/course/external/view/elearning/134/aws-cloud-practitioner-essentials"},
+                         {"title": "GFG AWS Tutorial",                 "url": "https://www.geeksforgeeks.org/aws-tutorial/"}],
         "intermediate": [{"title": "AWS CDK Workshop",                 "url": "https://cdkworkshop.com/"}],
         "advanced":     [{"title": "AWS re:Invent",                    "url": "https://www.youtube.com/@AWSEventsChannel"}],
     },
+    "Data Structures": {
+        "beginner":     [{"title": "GFG Data Structures Tutorial",     "url": "https://www.geeksforgeeks.org/data-structures/"},
+                         {"title": "Visualgo (DSA Visualizer)",        "url": "https://visualgo.net/en"}],
+        "intermediate": [{"title": "GFG DSA Practice Problems",        "url": "https://practice.geeksforgeeks.org/explore?category=Data%20Structures"},
+                         {"title": "LeetCode DSA Patterns",            "url": "https://leetcode.com/discuss/study-guide/1333049/collections-of-important-list"}],
+        "advanced":     [{"title": "CP Algorithms",                    "url": "https://cp-algorithms.com/"},
+                         {"title": "GFG Advanced Data Structures",     "url": "https://www.geeksforgeeks.org/advanced-data-structures/"}],
+    },
+    "Algorithms": {
+        "beginner":     [{"title": "GFG Algorithms Tutorial",          "url": "https://www.geeksforgeeks.org/fundamentals-of-algorithms/"},
+                         {"title": "Khan Academy Algorithms",          "url": "https://www.khanacademy.org/computing/computer-science/algorithms"}],
+        "intermediate": [{"title": "GFG Algorithm Practice",           "url": "https://practice.geeksforgeeks.org/explore?category=Algorithms"},
+                         {"title": "Neetcode Roadmap",                 "url": "https://neetcode.io/roadmap"}],
+        "advanced":     [{"title": "CP Algorithms",                    "url": "https://cp-algorithms.com/"},
+                         {"title": "CLRS (Introduction to Algorithms)","url": "https://mitpress.mit.edu/books/introduction-algorithms-third-edition"}],
+    },
     "Machine Learning": {
         "beginner":     [{"title": "Andrew Ng ML Specialization",      "url": "https://www.coursera.org/specializations/machine-learning-introduction"},
+                         {"title": "GFG Machine Learning Tutorial",    "url": "https://www.geeksforgeeks.org/machine-learning/"},
                          {"title": "Google ML Crash Course",           "url": "https://developers.google.com/machine-learning/crash-course"}],
         "intermediate": [{"title": "Hands-On ML (Scikit-Learn + TF)", "url": "https://www.oreilly.com/library/view/hands-on-machine-learning/9781098125967/"},
-                         {"title": "Kaggle Learn",                     "url": "https://www.kaggle.com/learn"}],
+                         {"title": "Kaggle Learn",                     "url": "https://www.kaggle.com/learn"},
+                         {"title": "GFG ML Interview Questions",       "url": "https://www.geeksforgeeks.org/machine-learning-interview-questions/"}],
         "advanced":     [{"title": "CS229 Stanford ML",                "url": "https://cs229.stanford.edu/"}],
     },
     "Deep Learning": {
         "beginner":     [{"title": "DeepLearning.AI Specialization",   "url": "https://www.coursera.org/specializations/deep-learning"},
+                         {"title": "GFG Deep Learning Tutorial",       "url": "https://www.geeksforgeeks.org/deep-learning-tutorial/"},
                          {"title": "fast.ai Practical Deep Learning",  "url": "https://course.fast.ai/"}],
         "intermediate": [{"title": "Dive into Deep Learning",          "url": "https://d2l.ai/"}],
         "advanced":     [{"title": "Full Stack Deep Learning",         "url": "https://fullstackdeeplearning.com/"}],
     },
     "Statistics": {
         "beginner":     [{"title": "Khan Academy Statistics",          "url": "https://www.khanacademy.org/math/statistics-probability"},
+                         {"title": "GFG Statistics for Data Science",  "url": "https://www.geeksforgeeks.org/statistics-for-data-science/"},
                          {"title": "StatQuest (YouTube)",              "url": "https://www.youtube.com/@statquest"}],
         "intermediate": [{"title": "Think Stats (free)",               "url": "https://greenteapress.com/wp/think-stats-2e/"}],
         "advanced":     [{"title": "OpenIntro Statistics",             "url": "https://www.openintro.org/book/os/"}],
     },
     "Linear Algebra": {
         "beginner":     [{"title": "3Blue1Brown – Essence of LA",      "url": "https://www.youtube.com/playlist?list=PLZHQObOWTQDPD3MizzM2xVFitgF8hE_ab"},
-                         {"title": "Khan Academy Linear Algebra",      "url": "https://www.khanacademy.org/math/linear-algebra"}],
+                         {"title": "Khan Academy Linear Algebra",      "url": "https://www.khanacademy.org/math/linear-algebra"},
+                         {"title": "GFG Linear Algebra",               "url": "https://www.geeksforgeeks.org/linear-algebra-for-machine-learning/"}],
         "intermediate": [{"title": "MIT 18.06 Gilbert Strang",         "url": "https://ocw.mit.edu/courses/18-06-linear-algebra-spring-2010/"}],
         "advanced":     [{"title": "The Matrix Cookbook",              "url": "https://www.math.uwaterloo.ca/~hwolkowi/matrixcookbook.pdf"}],
     },
     "Git": {
         "beginner":     [{"title": "Learn Git Branching",              "url": "https://learngitbranching.js.org/"},
+                         {"title": "GFG Git Tutorial",                 "url": "https://www.geeksforgeeks.org/git-tutorial/"},
                          {"title": "Git Official Docs",                "url": "https://git-scm.com/doc"}],
         "intermediate": [{"title": "Atlassian Git Tutorials",          "url": "https://www.atlassian.com/git/tutorials"}],
         "advanced":     [{"title": "Pro Git Book (free)",              "url": "https://git-scm.com/book/en/v2"}],
     },
     "Linux": {
-        "beginner":     [{"title": "Linux Journey",                    "url": "https://linuxjourney.com/"}],
+        "beginner":     [{"title": "Linux Journey",                    "url": "https://linuxjourney.com/"},
+                         {"title": "GFG Linux Tutorial",               "url": "https://www.geeksforgeeks.org/linux-tutorial/"}],
         "intermediate": [{"title": "Linux Command Line (free book)",   "url": "https://linuxcommand.org/tlcl.php"}],
         "advanced":     [{"title": "Linux Kernel Development",         "url": "https://www.oreilly.com/library/view/linux-kernel-development/9780768696974/"}],
     },
+    "Networking": {
+        "beginner":     [{"title": "GFG Computer Networks Tutorial",   "url": "https://www.geeksforgeeks.org/computer-network-tutorials/"},
+                         {"title": "Cisco Networking Academy",         "url": "https://www.netacad.com/courses/networking"}],
+        "intermediate": [{"title": "Professor Messer CompTIA Net+",    "url": "https://www.professormesser.com/network-plus/n10-008/n10-008-video/n10-008-training-course/"}],
+        "advanced":     [{"title": "Computer Networks (Tanenbaum)",    "url": "https://www.pearson.com/en-us/subject-catalog/p/computer-networks/P200000003234"}],
+    },
+    "Cybersecurity": {
+        "beginner":     [{"title": "GFG Cybersecurity Tutorial",       "url": "https://www.geeksforgeeks.org/cyber-security-tutorial/"},
+                         {"title": "TryHackMe – Pre-Security",         "url": "https://tryhackme.com/path/outline/presecurity"}],
+        "intermediate": [{"title": "TryHackMe – SOC Level 1",          "url": "https://tryhackme.com/path/outline/soclevel1"},
+                         {"title": "GFG Ethical Hacking",              "url": "https://www.geeksforgeeks.org/ethical-hacking-tutorials/"}],
+        "advanced":     [{"title": "HackTheBox Academy",               "url": "https://academy.hackthebox.com/"},
+                         {"title": "PortSwigger Web Security Academy", "url": "https://portswigger.net/web-security"}],
+    },
+    "Network Security": {
+        "beginner":     [{"title": "GFG Network Security",             "url": "https://www.geeksforgeeks.org/network-security/"},
+                         {"title": "TryHackMe – Pre-Security Path",    "url": "https://tryhackme.com/path/outline/presecurity"}],
+        "intermediate": [{"title": "CompTIA Security+ Study Guide",    "url": "https://www.professormesser.com/security-plus/sy0-701/sy0-701-video/sy0-701-comptia-security-plus-course/"}],
+        "advanced":     [{"title": "SANS Network Security",            "url": "https://www.sans.org/courses/network-penetration-testing-ethical-hacking/"}],
+    },
+    "Ethical Hacking": {
+        "beginner":     [{"title": "GFG Ethical Hacking Tutorial",     "url": "https://www.geeksforgeeks.org/ethical-hacking-tutorials/"},
+                         {"title": "TryHackMe – Jr Penetration Tester","url": "https://tryhackme.com/path/outline/jrpenetrationtester"}],
+        "intermediate": [{"title": "Hack The Box – Starting Point",    "url": "https://www.hackthebox.com/hacker/hacking-labs"},
+                         {"title": "PortSwigger Web Security Academy", "url": "https://portswigger.net/web-security"}],
+        "advanced":     [{"title": "OSCP Certification",               "url": "https://www.offsec.com/courses/pen-200/"}],
+    },
+    "Cryptography": {
+        "beginner":     [{"title": "GFG Cryptography Tutorial",        "url": "https://www.geeksforgeeks.org/cryptography-tutorial/"},
+                         {"title": "Khan Academy Cryptography",        "url": "https://www.khanacademy.org/computing/computer-science/cryptography"}],
+        "intermediate": [{"title": "Crypto101 (free book)",             "url": "https://www.crypto101.io/"}],
+        "advanced":     [{"title": "Introduction to Modern Cryptography","url": "https://www.crcpress.com/Introduction-to-Modern-Cryptography/Katz-Lindell/p/book/9780815354369"}],
+    },
+    "Cloud Security": {
+        "beginner":     [{"title": "GFG Cloud Security Tutorial",      "url": "https://www.geeksforgeeks.org/cloud-security/"},
+                         {"title": "AWS Security Fundamentals",        "url": "https://explore.skillbuilder.aws/learn/course/external/view/elearning/48/aws-security-fundamentals"}],
+        "intermediate": [{"title": "Google Cloud Security Fundamentals","url": "https://cloud.google.com/learn/training/security"}],
+        "advanced":     [{"title": "CISM Certification",               "url": "https://www.isaca.org/credentialing/cism"}],
+    },
     "Excel": {
-        "beginner":     [{"title": "Microsoft Excel Training",         "url": "https://support.microsoft.com/en-us/excel"}],
+        "beginner":     [{"title": "Microsoft Excel Training",         "url": "https://support.microsoft.com/en-us/excel"},
+                         {"title": "GFG MS Excel Tutorial",            "url": "https://www.geeksforgeeks.org/ms-excel-tutorial/"}],
         "intermediate": [{"title": "ExcelJet – Formulas Guide",        "url": "https://exceljet.net/"}],
         "advanced":     [{"title": "Power Query & Power Pivot",        "url": "https://www.myonlinetraininghub.com/excel-power-query-tutorial"}],
     },
     "Financial Accounting": {
         "beginner":     [{"title": "Accounting Basics – Coursera",     "url": "https://www.coursera.org/learn/financial-accounting"},
+                         {"title": "GFG Accounting Basics",            "url": "https://www.geeksforgeeks.org/accounting-tutorial/"},
                          {"title": "Khan Academy – Accounting",        "url": "https://www.khanacademy.org/economics-finance-domain/core-finance/accounting-and-financial-stateme"}],
         "intermediate": [{"title": "CPA Study – Becker",               "url": "https://www.becker.com/cpa-review"}],
         "advanced":     [{"title": "IFRS Standards",                   "url": "https://www.ifrs.org/issued-standards/"}],
@@ -1327,12 +1504,14 @@ TIERED_RESOURCES: Dict[str, Dict[str, List[Dict]]] = {
     },
     "Data Visualization": {
         "beginner":     [{"title": "Storytelling with Data",           "url": "https://www.storytellingwithdata.com/"},
+                         {"title": "GFG Data Visualization Tutorial",  "url": "https://www.geeksforgeeks.org/data-visualization/"},
                          {"title": "Kaggle Data Visualization",        "url": "https://www.kaggle.com/learn/data-visualization"}],
         "intermediate": [{"title": "Seaborn Tutorial",                 "url": "https://seaborn.pydata.org/tutorial.html"}],
         "advanced":     [{"title": "From Data to Viz",                 "url": "https://www.data-to-viz.com/"}],
     },
     "Power BI": {
-        "beginner":     [{"title": "Microsoft Power BI Learning",      "url": "https://learn.microsoft.com/en-us/training/powerplatform/power-bi"}],
+        "beginner":     [{"title": "Microsoft Power BI Learning",      "url": "https://learn.microsoft.com/en-us/training/powerplatform/power-bi"},
+                         {"title": "GFG Power BI Tutorial",            "url": "https://www.geeksforgeeks.org/power-bi/"}],
         "intermediate": [{"title": "SQLBI – DAX Introduction",         "url": "https://www.sqlbi.com/guides/dax/"}],
         "advanced":     [{"title": "DAX Guide",                        "url": "https://dax.guide/"}],
     },
@@ -1343,8 +1522,10 @@ TIERED_RESOURCES: Dict[str, Dict[str, List[Dict]]] = {
         "advanced":     [{"title": "Design Systems with Figma",        "url": "https://www.designsystems.com/"}],
     },
     "System Design": {
-        "beginner":     [{"title": "System Design Primer",             "url": "https://github.com/donnemartin/system-design-primer"}],
-        "intermediate": [{"title": "Grokking System Design",           "url": "https://www.designgurus.io/course/grokking-the-system-design-interview"}],
+        "beginner":     [{"title": "GFG System Design Tutorial",       "url": "https://www.geeksforgeeks.org/system-design-tutorial/"},
+                         {"title": "System Design Primer",             "url": "https://github.com/donnemartin/system-design-primer"}],
+        "intermediate": [{"title": "Grokking System Design",           "url": "https://www.designgurus.io/course/grokking-the-system-design-interview"},
+                         {"title": "GFG System Design Interview Qs",   "url": "https://www.geeksforgeeks.org/system-design-interview-questions/"}],
         "advanced":     [{"title": "Designing Data-Intensive Apps",    "url": "https://dataintensive.net/"}],
     },
     "Anatomy": {
@@ -1359,7 +1540,8 @@ TIERED_RESOURCES: Dict[str, Dict[str, List[Dict]]] = {
         "advanced":     [{"title": "SSRN Legal Papers",                "url": "https://www.ssrn.com/index.cfm/en/lsn/"}],
     },
     "Terraform": {
-        "beginner":     [{"title": "HashiCorp – Get Started",          "url": "https://developer.hashicorp.com/terraform/tutorials/aws-get-started"}],
+        "beginner":     [{"title": "HashiCorp – Get Started",          "url": "https://developer.hashicorp.com/terraform/tutorials/aws-get-started"},
+                         {"title": "GFG Terraform Tutorial",           "url": "https://www.geeksforgeeks.org/terraform/"}],
         "intermediate": [{"title": "Terraform Up & Running",           "url": "https://www.terraformupandrunning.com/"}],
         "advanced":     [{"title": "Terraform Advanced HCL",           "url": "https://developer.hashicorp.com/terraform/language"}],
     },
@@ -1378,6 +1560,57 @@ TIERED_RESOURCES: Dict[str, Dict[str, List[Dict]]] = {
 }
 
 
+def _get_gfg_url(skill: str) -> Optional[str]:
+    """Return a direct GeeksForGeeks URL for known skills."""
+    s = skill.lower().strip()
+    GFG_MAP = {
+        "python": "python-programming-language",
+        "javascript": "javascript",
+        "java": "java",
+        "c++": "c-plus-plus",
+        "c#": "csharp-programming-language",
+        "react": "reactjs",
+        "node.js": "nodejs",
+        "sql": "sql-tutorial",
+        "mysql": "mysql-tutorial",
+        "data structures": "data-structures",
+        "algorithms": "fundamentals-of-algorithms",
+        "system design": "system-design-tutorial",
+        "machine learning": "machine-learning",
+        "deep learning": "deep-learning-tutorial",
+        "docker": "docker-tutorial",
+        "kubernetes": "kubernetes-tutorial",
+        "git": "git-tutorial",
+        "linux": "linux-tutorial",
+        "networking": "computer-network-tutorials",
+        "aws": "aws-tutorial",
+        "django": "django-tutorial",
+        "flask": "flask-tutorial",
+        "html": "html-tutorial",
+        "css": "css-tutorial",
+        "mongodb": "mongodb-tutorial",
+        "typescript": "typescript",
+        "cybersecurity": "cyber-security-tutorial",
+        "ethical hacking": "ethical-hacking-tutorials",
+        "cryptography": "cryptography-tutorial",
+        "cloud security": "cloud-security",
+        "network security": "network-security",
+        "data science": "data-science-tutorial",
+        "statistics": "statistics-for-data-science",
+        "power bi": "power-bi",
+        "terraform": "terraform",
+        "excel": "ms-excel-tutorial",
+        "operating system": "operating-systems",
+        "dbms": "dbms",
+        "oops": "object-oriented-programming-oops-concept-in-java",
+    }
+    for key, slug in GFG_MAP.items():
+        if key in s:
+            return f"https://www.geeksforgeeks.org/{slug}/"
+    # Generic GFG search fallback
+    return f"https://www.geeksforgeeks.org/search/?query={quote_plus(skill)}"
+
+
 def _platform_resources(skill: str, level: str, role: str = "") -> List[Dict]:
     q      = quote_plus(skill)
     rq     = quote_plus(role) if role else ""
@@ -1385,6 +1618,7 @@ def _platform_resources(skill: str, level: str, role: str = "") -> List[Dict]:
                "advanced": "advanced+production"}.get(level, "tutorial")
     return [
         {"title": f"{skill} tutorial (YouTube)", "url": f"https://www.youtube.com/results?search_query={q}+{tier_q}"},
+        {"title": f"GeeksForGeeks: {skill}",      "url": _get_gfg_url(skill)},
         {"title": f"{skill} course (Coursera)",  "url": f"https://www.coursera.org/search?query={q}+{rq}".rstrip("+")},
         {"title": f"{skill} course (Udemy)",     "url": f"https://www.udemy.com/courses/search/?q={q}"},
     ]
@@ -1400,29 +1634,30 @@ def _role_specific_resources(skill: str, level: str, role: str = "") -> List[Dic
     is_tech = _is_tech_role(role)
     resources = []
     
-    # 1. Best: Try to get a real YouTube video instead of a search page
+    # 1. GeeksForGeeks — always first for any technical skill
+    gfg_url = _get_gfg_url(skill)
+    resources.append({"title": f"GeeksForGeeks: {skill} Tutorial", "url": gfg_url})
+
+    # 2. Try to get a real YouTube video instead of a search page
     yt_query = f"{role} {skill} {tier_q}"
     yt_url = _fetch_first_youtube_video(yt_query)
     if yt_url:
         resources.append({"title": f"Video: {skill} {level} guide (YouTube)", "url": yt_url})
     else:
-        resources.append({"title": f"{skill} roadmap (YouTube Search)", "url": f"https://www.youtube.com/results?search_query={combined}"})
+        resources.append({"title": f"{skill} tutorial (YouTube)", "url": f"https://www.youtube.com/results?search_query={combined}"})
 
-    # 2. Add Roadmap.sh if applicable
+    # 3. Add Roadmap.sh if applicable
     rm_url = _get_roadmap_sh_url(skill) or _get_roadmap_sh_url(role)
     if rm_url:
-        resources.append({"title": f"Industry Roadmap: {skill} (roadmap.sh)", "url": rm_url})
+        resources.append({"title": f"Roadmap: {skill} (roadmap.sh)", "url": rm_url})
 
-    # 3. Add Google search as a secondary fallback
-    resources.append({"title": f"Google Search: {skill} {level} resources", "url": f"https://www.google.com/search?q={combined}"})
-    
+    # 4. Platform course
     if is_tech:
-        resources.append({"title": f"GitHub: {skill} projects & repositories", 
-                          "url": f"https://github.com/search?q={combined}&type=repositories"})
+        resources.append({"title": f"{skill} course (Coursera)", "url": f"https://www.coursera.org/search?query={q}"})
     else:
-        resources.append({"title": f"LinkedIn: {skill} community insights", 
+        resources.append({"title": f"LinkedIn: {skill} community insights",
                           "url": f"https://www.linkedin.com/search/results/all/?keywords={combined}"})
-        
+
     return resources
 
 
@@ -1485,41 +1720,255 @@ def _build_capstone_resources(intermediates, advanced_list, role, rc):
 
 
 def _build_interview_tasks(role, rc):
+    rl = role.lower()
     tasks = [f"Domain-specific {rc} interview preparation"]
-    if _is_tech_role(role):
-        tasks.append("Data structures & algorithms (LeetCode / NeetCode)")
+
+    if _is_cyber_role(role):
+        tasks.extend([
+            "Incident response scenario walk-through",
+            "SOC analyst tabletop exercises & threat hunting",
+            "Behavioral questions using STAR method (security context)",
+            "Portfolio / CV / CTF writeups review",
+        ])
+    elif _is_dsa_coding_role(role):
+        tasks.extend([
+            "Data structures & algorithms (LeetCode / NeetCode)",
+            "System design mock interview",
+            "Mock interviews (video / peer-to-peer)",
+            "Behavioral questions (STAR method)",
+            "Portfolio / CV / resume review",
+        ])
+    elif _is_data_role(role):
+        tasks.extend([
+            "ML / statistics case study interview",
+            "SQL + data analysis take-home challenge",
+            "Kaggle-style problem solving & code walkthrough",
+            "Behavioral questions (STAR method)",
+            "Portfolio / notebooks / GitHub review",
+        ])
+    elif _is_product_role(role):
+        tasks.extend([
+            "Product sense interview (design a product)",
+            "Estimation & metrics questions",
+            "Roadmapping & prioritisation case study",
+            "Behavioral questions (STAR method)",
+            "PM portfolio / case study writeup review",
+        ])
+    elif _is_design_role(role):
+        tasks.extend([
+            "Portfolio case study presentation walkthrough",
+            "Design critique of a real app or product",
+            "Whiteboard / live redesign challenge",
+            "Behavioral questions (STAR method)",
+            "Figma portfolio & case study documentation review",
+        ])
+    elif _is_medical_role(role):
+        tasks.extend([
+            "Clinical scenario / OSCE station practice",
+            "Medical ethics & communication questions",
+            "Differential diagnosis speed rounds",
+            "Behavioral / situational questions",
+            "CV / portfolio of clinical experience review",
+        ])
+    elif _is_finance_role(role):
+        tasks.extend([
+            "Technical finance interview questions (valuation, modeling)",
+            "Case study simulations and financial case prep",
+            "Behavioral questions (STAR method)",
+            "Resume / financial portfolio review",
+        ])
+    elif _is_legal_role(role):
+        tasks.extend([
+            "Legal scenario / hypothetical case analysis",
+            "Research & memo writing exercise",
+            "Client communication & ethics questions",
+            "Behavioral questions (STAR method)",
+            "CV & writing sample review",
+        ])
+    elif _is_marketing_role(role):
+        tasks.extend([
+            "Marketing case study (product launch / campaign design)",
+            "Analytics & A/B test interpretation questions",
+            "Content strategy & positioning challenge",
+            "Behavioral questions (STAR method)",
+            "Portfolio / campaign case study review",
+        ])
+    elif _is_operations_role(role):
+        tasks.extend([
+            "Operations case study (process improvement / logistics)",
+            "Data-driven problem solving questions",
+            "Stakeholder management scenario",
+            "Behavioral questions (STAR method)",
+            "CV & project portfolio review",
+        ])
     else:
-        tasks.append(f"Domain case studies and {rc} role-play simulations")
-    tasks.extend(["Mock interviews (video or peer-to-peer)",
-                  "Behavioural questions (STAR method)",
-                  "Portfolio / CV / resume review"])
+        tasks.extend([
+            f"Domain case studies and {rc} role-play simulations",
+            "Mock interviews (video or peer-to-peer)",
+            "Behavioral questions (STAR method)",
+            "Portfolio / CV / resume review",
+        ])
     return tasks
 
 
 def _build_interview_resources(role, rc):
-    q         = quote_plus(role)
+    q  = quote_plus(role)
+    gd = (f"https://www.glassdoor.com/Interview/"
+          f"{role.replace(' ', '-')}-interview-questions-SRCH_KO0,{len(role)}.htm")
+    star = {"title": "STAR Method Guide", "url": "https://www.themuse.com/advice/star-interview-method"}
     resources = []
-    if _is_tech_role(role):
-        resources.append({"skill": "DSA", "tier": "intermediate",
-                           "resources": [{"title": "NeetCode 150", "url": "https://neetcode.io/practice"},
-                                         {"title": "LeetCode",     "url": "https://leetcode.com/"}]})
-        resources.append({"skill": "Mock Interviews", "tier": "advanced",
-                           "resources": [{"title": "Pramp",           "url": "https://www.pramp.com/"},
-                                         {"title": "Interviewing.io", "url": "https://interviewing.io/"}]})
+
+    if _is_cyber_role(role):
+        resources.append({"skill": "Practical Cyber Scenarios", "tier": "intermediate",
+                           "resources": [
+                               {"title": "TryHackMe – SOC Analyst Path",         "url": "https://tryhackme.com/path/outline/soclevel1"},
+                               {"title": "HackTheBox – Starting Point Labs",     "url": "https://www.hackthebox.com/hacker/hacking-labs"},
+                               {"title": "GFG Cybersecurity Interview Questions","url": "https://www.geeksforgeeks.org/cyber-security-interview-questions/"},
+                           ]})
+        resources.append({"skill": "Threat Intel & IR Prep", "tier": "advanced",
+                           "resources": [
+                               {"title": "Blue Team Labs Online",              "url": "https://blueteamlabs.online/"},
+                               {"title": "CyberDefenders (free SOC labs)",    "url": "https://cyberdefenders.org/"},
+                               {"title": f"{rc} Interview Questions – Glassdoor", "url": gd},
+                               star,
+                           ]})
+
+    elif _is_dsa_coding_role(role):
+        resources.append({"skill": "DSA & Coding Practice", "tier": "intermediate",
+                           "resources": [
+                               {"title": "NeetCode 150",     "url": "https://neetcode.io/practice"},
+                               {"title": "LeetCode",         "url": "https://leetcode.com/"},
+                               {"title": "GFG DSA Practice", "url": "https://www.geeksforgeeks.org/data-structures/"},
+                           ]})
+        resources.append({"skill": "Mock Interviews & System Design", "tier": "advanced",
+                           "resources": [
+                               {"title": "Pramp",            "url": "https://www.pramp.com/"},
+                               {"title": "Interviewing.io",  "url": "https://interviewing.io/"},
+                               {"title": f"{rc} Interview Questions – Glassdoor", "url": gd},
+                               star,
+                           ]})
+
+    elif _is_data_role(role):
+        resources.append({"skill": "Data Science Interview Prep", "tier": "intermediate",
+                           "resources": [
+                               {"title": "Kaggle Learn – Competitions",          "url": "https://www.kaggle.com/learn"},
+                               {"title": "GFG Data Science Interview Questions", "url": "https://www.geeksforgeeks.org/data-science-interview-questions/"},
+                               {"title": "Stratascratch – SQL Practice",         "url": "https://www.stratascratch.com/"},
+                           ]})
+        resources.append({"skill": "ML & Stats Mock Prep", "tier": "advanced",
+                           "resources": [
+                               {"title": "Data Interview Pro",                   "url": "https://www.datainterviewpro.com/"},
+                               {"title": f"{rc} Interview Questions – Glassdoor","url": gd},
+                               {"title": "Ace the Data Science Interview (book)","url": "https://www.acethedatascienceinterview.com/"},
+                               star,
+                           ]})
+
+    elif _is_product_role(role):
+        resources.append({"skill": "Product Sense & Estimation", "tier": "intermediate",
+                           "resources": [
+                               {"title": "Exponent – PM Interview Prep",         "url": "https://www.tryexponent.com/courses/pm"},
+                               {"title": "Lenny's Newsletter – PM Resources",    "url": "https://www.lennysnewsletter.com/"},
+                               {"title": "GFG Product Manager Interview Questions","url": "https://www.geeksforgeeks.org/product-manager-interview-questions/"},
+                           ]})
+        resources.append({"skill": "PM Portfolio & Case Studies", "tier": "advanced",
+                           "resources": [
+                               {"title": "Decode and Conquer (book)",            "url": "https://www.amazon.com/Decode-Conquer-Answers-Management-Interviews/dp/0615930417"},
+                               {"title": f"{rc} Interview Questions – Glassdoor","url": gd},
+                               star,
+                           ]})
+
+    elif _is_design_role(role):
+        resources.append({"skill": "Portfolio & Design Critique", "tier": "intermediate",
+                           "resources": [
+                               {"title": "Figma Community Portfolios",           "url": "https://www.figma.com/community"},
+                               {"title": "UX Portfolio Reviews (YouTube)",       "url": f"https://www.youtube.com/results?search_query=ux+portfolio+review+2024"},
+                               {"title": "Nielsen Norman – UX Career Guide",     "url": "https://www.nngroup.com/articles/ux-career-advice/"},
+                           ]})
+        resources.append({"skill": "Design Interview Prep", "tier": "advanced",
+                           "resources": [
+                               {"title": f"{rc} Interview Questions – Glassdoor","url": gd},
+                               {"title": "UX Interview Questions (UX Planet)",   "url": "https://uxplanet.org/most-common-ux-design-interview-questions-answered-41cd5e35505"},
+                               star,
+                           ]})
+
+    elif _is_medical_role(role):
+        resources.append({"skill": "Clinical Interview Prep", "tier": "intermediate",
+                           "resources": [
+                               {"title": "BMJ Learning – Clinical Cases",        "url": "https://new-learning.bmj.com/"},
+                               {"title": "Osmosis – Clinical Review",            "url": "https://www.osmosis.org/"},
+                               {"title": "Medscape – Case Studies",              "url": "https://www.medscape.com/resource/casereports"},
+                           ]})
+        resources.append({"skill": "OSCE & Communication Skills", "tier": "advanced",
+                           "resources": [
+                               {"title": f"{rc} Interview Questions – YouTube",  "url": f"https://www.youtube.com/results?search_query={q}+interview+questions"},
+                               {"title": "Medical Ethics Scenarios",             "url": "https://www.gmc-uk.org/ethical-guidance"},
+                               star,
+                           ]})
+
+    elif _is_finance_role(role):
+        resources.append({"skill": "Finance Technical Prep", "tier": "intermediate",
+                           "resources": [
+                               {"title": "Wall Street Prep – Free Resources",    "url": "https://www.wallstreetprep.com/knowledge/"},
+                               {"title": "Breaking Into Wall Street",            "url": "https://breakingintowallstreet.com/"},
+                               {"title": f"{rc} Interview Questions – YouTube",  "url": f"https://www.youtube.com/results?search_query={q}+technical+interview+questions"},
+                           ]})
+        resources.append({"skill": "Case Study & Behavioral Prep", "tier": "advanced",
+                           "resources": [
+                               {"title": f"{rc} Interview Questions – Glassdoor","url": gd},
+                               star,
+                           ]})
+
+    elif _is_legal_role(role):
+        resources.append({"skill": "Legal Interview Prep", "tier": "intermediate",
+                           "resources": [
+                               {"title": "LawCrossing – Legal Interview Tips",   "url": "https://www.lawcrossing.com/article/900010688/How-to-Succeed-in-a-Legal-Interview/"},
+                               {"title": "Law School Interview Questions (YouTube)","url": f"https://www.youtube.com/results?search_query={q}+interview+questions"},
+                               {"title": f"{rc} Interview Questions – Glassdoor","url": gd},
+                           ]})
+        resources.append({"skill": "Writing & Research Assessment", "tier": "advanced",
+                           "resources": [
+                               {"title": "Cornell LII – Legal Research",         "url": "https://www.law.cornell.edu/"},
+                               star,
+                           ]})
+
+    elif _is_marketing_role(role):
+        resources.append({"skill": "Marketing Case Studies", "tier": "intermediate",
+                           "resources": [
+                               {"title": "GFG Digital Marketing Interview Qs",   "url": "https://www.geeksforgeeks.org/digital-marketing-interview-questions/"},
+                               {"title": "HubSpot Academy – Free Certifications","url": "https://academy.hubspot.com/"},
+                               {"title": f"{rc} Interview Questions – YouTube",  "url": f"https://www.youtube.com/results?search_query={q}+interview+questions"},
+                           ]})
+        resources.append({"skill": "Campaign & Portfolio Review", "tier": "advanced",
+                           "resources": [
+                               {"title": f"{rc} Interview Questions – Glassdoor","url": gd},
+                               star,
+                           ]})
+
+    elif _is_operations_role(role):
+        resources.append({"skill": "Operations Case Interview", "tier": "intermediate",
+                           "resources": [
+                               {"title": "Case Interview – StrategyCase.com",    "url": "https://www.strategycase.com/"},
+                               {"title": f"{rc} Interview Questions – YouTube",  "url": f"https://www.youtube.com/results?search_query={q}+interview+questions"},
+                               {"title": "GFG Operations Interview Questions",   "url": f"https://www.geeksforgeeks.org/search/?query={q}+interview"},
+                           ]})
+        resources.append({"skill": "Behavioral & Portfolio Prep", "tier": "advanced",
+                           "resources": [
+                               {"title": f"{rc} Interview Questions – Glassdoor","url": gd},
+                               star,
+                           ]})
+
     else:
         resources.append({"skill": f"{rc} Case Studies", "tier": "intermediate",
-                           "resources": [{"title": f"{rc} case study interview (YouTube)",
-                                          "url": f"https://www.youtube.com/results?search_query={q}+case+study+interview"},
-                                         {"title": f"{rc} mock interview prep (YouTube)",
-                                          "url": f"https://www.youtube.com/results?search_query={q}+mock+interview"}]})
-    resources.append({"skill": "Domain Prep", "tier": "advanced",
-                       "resources": [{"title": f"{rc} Interview Questions – Glassdoor",
-                                       "url": (f"https://www.glassdoor.com/Interview/"
-                                               f"{role.replace(' ', '-')}-interview-questions-SRCH_KO0,{len(role)}.htm")},
-                                      {"title": f"{rc} Interview Questions – YouTube",
-                                       "url": f"https://www.youtube.com/results?search_query={q}+interview+questions+answers"},
-                                      {"title": "STAR Method Guide",
-                                       "url": "https://www.themuse.com/advice/star-interview-method"}]})
+                           "resources": [
+                               {"title": f"{rc} case study interview (YouTube)", "url": f"https://www.youtube.com/results?search_query={q}+case+study+interview"},
+                               {"title": f"{rc} mock interview prep (YouTube)",  "url": f"https://www.youtube.com/results?search_query={q}+mock+interview"},
+                           ]})
+        resources.append({"skill": "Domain Prep", "tier": "advanced",
+                           "resources": [
+                               {"title": f"{rc} Interview Questions – Glassdoor","url": gd},
+                               {"title": f"{rc} Interview Questions – YouTube",  "url": f"https://www.youtube.com/results?search_query={q}+interview+questions+answers"},
+                               star,
+                           ]})
     return resources
 
 
