@@ -165,7 +165,23 @@ class BurnoutAwarePlannerAgent:
         for phase in roadmap_phases:
             for task in phase.get('tasks', []):
                 all_tasks.append(task)
-                
+        
+        rollover_tasks = [t for t in existing_tasks if t.get('rollovers', 0) < 3 and t.get('completed') == False]
+        
+        # Roll-over overdue first
+        for task in rollover_tasks:
+            tomorrow = current_date + timedelta(days=1)
+            schedule.append({
+                'title': f"ROLLOVER: {task.get('title', 'Task')}",
+                'date': tomorrow.strftime('%Y-%m-%d'),
+                'startTime': task.get('startTime', '09:00'),
+                'endTime': task.get('endTime', '10:00'),
+                'category': 'study',
+                'priority': 'high',
+                'aiGenerated': True,
+                'rollovers': task.get('rollovers', 0) + 1
+            })
+        
         # Simple constraint heuristic iterator
         task_idx = 0
         days_generated = 0
@@ -214,3 +230,30 @@ class BurnoutAwarePlannerAgent:
             days_generated += 1
             
         return schedule
+    
+    def orchestrate(self, user_data: Dict) -> Dict:
+        """
+        Full agentic orchestration: Burnout → Decision → Schedule
+        user_data = {'riskScore': 65, 'undoneCount': 2, 'events': [...], 'phases': [...], 'action': 'heavy_reschedule'}
+        """
+        print(f"[Orchestrator] Risk: {user_data.get('riskScore')}, Undone: {user_data.get('undoneCount')}")
+        
+        phases = user_data.get('phases', [])
+        events = user_data.get('events', [])
+        existing_tasks = user_data.get('existing_tasks', [])
+        prefs = user_data.get('user_prefs', {})
+        
+        # Decision adjustments
+        action = user_data.get('action', 'roadmap_sync')
+        if action == 'heavy_reschedule':
+            prefs['max_study_hours'] = max(1, prefs.get('max_study_hours', 4) * 0.6) # Reduce load
+        elif action == 'coach_intervention':
+            prefs['max_study_hours'] = prefs.get('max_study_hours', 4) * 0.8
+        
+        tasks = self.generate_daily_schedule(phases, existing_tasks, prefs)
+        
+        return {
+            'tasks': tasks,
+            'summary': f"Orchestrated {len(tasks)} tasks | Action: {action} | Safe hrs/day: {prefs.get('max_study_hours')}",
+            'risk_adjusted': True
+        }

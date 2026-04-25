@@ -242,9 +242,22 @@ router.get('/ai-recommendation', auth, async (req, res) => {
   // Get cached ML data to feed the recommendation
   const cached = getCache(targetRole);
   
-  // If no cache, we can't give a specific plan yet
+  // If no cache yet, return a minimal plan so callers (e.g. Skill Gap page) do not fail in parallel with /analyze
   if (!cached) {
-    return res.status(400).json({ message: "Run /analyze first to generate recommendation data." });
+    const topSkill = 'Core fundamentals';
+    return res.json({
+      analysis: `Run skill analysis first for a detailed market breakdown. Baseline guidance for ${targetRole}: strengthen ${topSkill} and document proof in projects.`,
+      action_plan: [
+        { week: '1–2', focus: 'Foundations', action: `Review role requirements and start with ${topSkill}.` },
+        { week: '3–4', focus: 'Practice', action: 'Complete one small project that maps to your target role.' },
+      ],
+      strengths: allSkills.slice(0, 3),
+      weaknesses: ['Complete /skills/analyze for live gap data'],
+      next_steps: ['Open Skill Gap Analyzer and wait for analysis to finish', 'Add missing skills to your learning queue'],
+      estimated_time_to_ready_weeks: 24,
+      role: targetRole,
+      source: 'placeholder-until-analyze',
+    });
   }
 
   const missingSkills = cached.missing_skills || [];

@@ -11,8 +11,14 @@ const taskSchema = new mongoose.Schema({
   category: { type: String, enum: ['study', 'assignment', 'project', 'exam', 'personal', 'other'], default: 'study' },
   priority: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
   completed: { type: Boolean, default: false },
+  completionReason: { type: String, default: '' },
   timeSpent: { type: Number, default: 0 }, // actual time spent in seconds
   aiGenerated: { type: Boolean, default: false },
+  rollovers: { type: Number, default: 0 },
+  plannerMode: { type: String, enum: ['strict', 'balanced', 'recovery'], default: 'balanced' },
+  movedByAgent: { type: String, default: '' },
+  movedReason: { type: String, default: '' },
+  explanation: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now }
 });
 

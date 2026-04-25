@@ -124,7 +124,7 @@ async function resumeStep(req, res) {
         const nodeResult = await parseResumeBuffer(req.file.buffer, req.file.mimetype);
         if (nodeResult) {
           if (nodeResult.skills?.length) extracted.skills = [...new Set([...extracted.skills, ...nodeResult.skills])];
-          if (nodeResult.projects?.length) extracted.projects = [...new Set([...extracted.projects, ...nodeResult.projects])];
+          if (nodeResult.projects?.length) extracted.projects = [...extracted.projects, ...nodeResult.projects];
           if (nodeResult.education?.length) extracted.education = nodeResult.education;
           if (nodeResult.experience?.length) extracted.experience = nodeResult.experience;
           if (nodeResult.certifications?.length) profile.extractedCertifications = nodeResult.certifications;
@@ -139,7 +139,10 @@ async function resumeStep(req, res) {
     profile.extractedSkills = extracted.skills || [];
     profile.extractedEducation = extracted.education || [];
     profile.extractedExperience = extracted.experience || [];
-    profile.projects = [...new Set([...(profile.projects || []), ...(extracted.projects || [])])];
+    // extracted.projects is [{title, description, techStack}] — store in extractedProjects
+    if (extracted.projects?.length) {
+      profile.extractedProjects = extracted.projects;
+    }
     await profile.save();
     log('Step2', `Profile saved: resumeUrl set, extractedSkills=${profile.extractedSkills?.length || 0}`);
 
@@ -158,6 +161,18 @@ async function skillsStep(req, res) {
     let { extraSkills, projects } = req.body;
     if (typeof extraSkills === 'string') try { extraSkills = JSON.parse(extraSkills); } catch { extraSkills = []; }
     if (typeof projects === 'string') try { projects = JSON.parse(projects); } catch { projects = []; }
+    // Sanitize: profile.projects is [String]. If the frontend accidentally sends
+    // objects (e.g. parsed resume projects), coerce each item to a plain string.
+    if (Array.isArray(projects)) {
+      projects = projects
+        .filter(p => p !== null && p !== undefined)
+        .map(p => {
+          if (typeof p === 'string') return p.trim();
+          if (typeof p === 'object') return (p.title || JSON.stringify(p)).slice(0, 250);
+          return String(p);
+        })
+        .filter(s => s.length > 0);
+    }
     const profile = await getOrCreateProfile(req.user.id);
     if (Array.isArray(extraSkills)) profile.extraSkills = extraSkills;
     if (Array.isArray(projects)) profile.projects = projects;

@@ -131,6 +131,12 @@ export default function Profile() {
   const [refreshing, setRefreshing] = useState(false);
   const [reparsing, setReparsing] = useState(false);
   const [reparseMessage, setReparseMessage] = useState('');
+  /** Which syllabus topic row is being edited: subject index, chapter index, topic index */
+  const [syllabusEdit, setSyllabusEdit] = useState(null);
+  const [syllabusEditText, setSyllabusEditText] = useState('');
+  const [uploadState, setUploadState] = useState({ resumeFile: null, syllabusFile: null, uploading: false, msg: '', error: '' });
+  const resumeInputRef = React.useRef(null);
+  const syllabusInputRef = React.useRef(null);
 
   const applyProfileData = (d) => {
     setForm(f => ({
@@ -172,9 +178,32 @@ export default function Profile() {
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
+  const beginEditTopic = (si, ci, ti, text) => {
+    setSyllabusEdit({ si, ci, ti });
+    setSyllabusEditText(text);
+  };
+  const cancelEditTopic = () => {
+    setSyllabusEdit(null);
+    setSyllabusEditText('');
+  };
+  const commitEditTopic = () => {
+    if (!syllabusEdit) return;
+    const { si, ci, ti } = syllabusEdit;
+    setForm((f) => {
+      const next = JSON.parse(JSON.stringify(f.syllabusStructure || { subjects: [] }));
+      const ch = next.subjects?.[si]?.chapters?.[ci];
+      if (!ch?.topics) return f;
+      ch.topics[ti] = syllabusEditText.trim() || ch.topics[ti];
+      const flatNames = (next.subjects || []).map((s) => s.name).filter(Boolean);
+      return { ...f, syllabusStructure: next, syllabusSubjects: flatNames };
+    });
+    cancelEditTopic();
+  };
+
   const save = async () => {
     setSaving(true);
     try {
+      const flatNames = (form.syllabusStructure?.subjects || []).map((s) => s.name).filter(Boolean);
       const payload = {
         name: form.name, email: form.email, college: form.college,
         branch: form.branch,
@@ -186,6 +215,8 @@ export default function Profile() {
         skills:  form.skills,
         interests: form.interests,
         targetRoles: form.targetRoles,
+        syllabusStructure: form.syllabusStructure,
+        syllabusSubjects: flatNames,
       };
       await axios.put('/profile', payload);
       setForm(f => ({ ...f, customRole: form.targetRole === 'Other' ? customRoleInput : '' }));
@@ -238,6 +269,33 @@ export default function Profile() {
     } catch (e) {
       setReparseMessage(e.response?.data?.message || e.message || 'Re-parse failed');
     } finally { setReparsing(false); }
+  };
+
+  const handleUpload = async (type) => {
+    const file = type === 'resume' ? uploadState.resumeFile : uploadState.syllabusFile;
+    if (!file) return;
+    setUploadState(s => ({ ...s, uploading: true, msg: '', error: '' }));
+    setReparseMessage('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await axios.post(`/profile/upload-document?type=${type}`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      applyProfileData(r.data);
+      const res = r.data.reparseResults;
+      const parsed = type === 'resume' ? res?.resume : res?.syllabus;
+      const info = parsed
+        ? type === 'resume'
+          ? `✅ Resume uploaded & parsed: ${parsed.extractedSkills} skills, ${parsed.extractedProjects} projects`
+          : `✅ Syllabus uploaded & parsed: ${parsed.subjectGroups} subjects`
+        : `✅ ${type === 'resume' ? 'Resume' : 'Syllabus'} uploaded & saved`;
+      setUploadState(s => ({ ...s, msg: info, resumeFile: type === 'resume' ? null : s.resumeFile, syllabusFile: type === 'syllabus' ? null : s.syllabusFile }));
+    } catch (err) {
+      setUploadState(s => ({ ...s, error: err?.response?.data?.message || `Upload failed: ${err.message}` }));
+    } finally {
+      setUploadState(s => ({ ...s, uploading: false }));
+    }
   };
 
   const openDocument = (type) => {
@@ -545,17 +603,80 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* Documents */}
-          {(form.resumeUrl || form.syllabusUrl || form.timetableUrl) && (
-            <div className="card card-md">
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14 }}>Documents</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {form.resumeUrl   && <button type="button" className="btn btn-secondary btn-sm" disabled={openingDoc !== null} onClick={() => openDocument('resume')}>{openingDoc === 'resume'   ? 'Opening…' : 'View resume'}</button>}
-                {form.syllabusUrl && <button type="button" className="btn btn-secondary btn-sm" disabled={openingDoc !== null} onClick={() => openDocument('syllabus')}>{openingDoc === 'syllabus' ? 'Opening…' : 'View syllabus'}</button>}
-                {form.timetableUrl && <button type="button" className="btn btn-secondary btn-sm" disabled={openingDoc !== null} onClick={() => openDocument('timetable')}>{openingDoc === 'timetable' ? 'Opening…' : 'View timetable'}</button>}
+          {/* Documents — upload + view + reparse */}
+          <div className="card card-md">
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14 }}>📎 Documents</div>
+
+            {/* Resume upload row */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: G.text2, marginBottom: 6 }}>Resume (PDF / DOCX)</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <input ref={resumeInputRef} type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }}
+                  onChange={e => setUploadState(s => ({ ...s, resumeFile: e.target.files[0] || null }))}
+                />
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => resumeInputRef.current?.click()}>
+                  {uploadState.resumeFile ? `📄 ${uploadState.resumeFile.name.slice(0, 24)}…` : 'Choose Resume'}
+                </button>
+                <button type="button" className="btn btn-primary btn-sm"
+                  disabled={!uploadState.resumeFile || uploadState.uploading}
+                  onClick={() => handleUpload('resume')}>
+                  {uploadState.uploading ? 'Uploading…' : 'Upload & Parse'}
+                </button>
+                {form.resumeUrl && (
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={openingDoc !== null} onClick={() => openDocument('resume')}>
+                    {openingDoc === 'resume' ? 'Opening…' : 'View current'}
+                  </button>
+                )}
               </div>
             </div>
-          )}
+
+            {/* Syllabus upload row */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: G.text2, marginBottom: 6 }}>Syllabus (PDF)</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <input ref={syllabusInputRef} type="file" accept=".pdf" style={{ display: 'none' }}
+                  onChange={e => setUploadState(s => ({ ...s, syllabusFile: e.target.files[0] || null }))}
+                />
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => syllabusInputRef.current?.click()}>
+                  {uploadState.syllabusFile ? `📄 ${uploadState.syllabusFile.name.slice(0, 24)}…` : 'Choose Syllabus'}
+                </button>
+                <button type="button" className="btn btn-primary btn-sm"
+                  disabled={!uploadState.syllabusFile || uploadState.uploading}
+                  onClick={() => handleUpload('syllabus')}>
+                  {uploadState.uploading ? 'Uploading…' : 'Upload & Parse'}
+                </button>
+                {form.syllabusUrl && (
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={openingDoc !== null} onClick={() => openDocument('syllabus')}>
+                    {openingDoc === 'syllabus' ? 'Opening…' : 'View current'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Timetable view */}
+            {form.timetableUrl && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: G.text2, marginBottom: 6 }}>Timetable</div>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={openingDoc !== null} onClick={() => openDocument('timetable')}>
+                  {openingDoc === 'timetable' ? 'Opening…' : 'View timetable'}
+                </button>
+              </div>
+            )}
+
+            {/* Re-parse existing docs */}
+            <div style={{ paddingTop: 8, borderTop: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-secondary btn-sm"
+                disabled={reparsing || uploadState.uploading}
+                onClick={reparseDocuments}>
+                {reparsing ? '⏳ Re-parsing…' : '🔄 Parse Again'}
+              </button>
+              <span style={{ fontSize: 11, color: G.text3 }}>Re-runs parser on your saved documents</span>
+            </div>
+
+            {/* Feedback messages */}
+            {uploadState.msg && <div style={{ marginTop: 8, fontSize: 11, color: G.green, fontWeight: 500 }}>{uploadState.msg}</div>}
+            {uploadState.error && <div style={{ marginTop: 8, fontSize: 11, color: G.red }}>{uploadState.error}</div>}
+          </div>
 
           {/* ── From your resume ─────────────────────────────────────────── */}
           <div className="card card-md">
@@ -563,7 +684,7 @@ export default function Profile() {
 
             {!form.resumeUrl && (
               <p style={{ fontSize: 12, color: G.text3, margin: 0 }}>
-                No resume on file. Complete onboarding step 2 or re-upload a resume.
+                No resume on file. Upload one above in the Documents section.
               </p>
             )}
 
@@ -652,6 +773,9 @@ export default function Profile() {
           {/* Syllabus */}
           <div className="card card-md">
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Syllabus (subjects → chapters → topics)</div>
+            <p style={{ fontSize: 11, color: G.text3, marginBottom: 10 }}>
+              Use <strong>Edit</strong> on any topic line to fix OCR/parser text, then press <strong>Save Changes</strong> below.
+            </p>
             {!form.syllabusUrl && (
               <p style={{ fontSize: 12, color: G.text3, marginBottom: 12 }}>No syllabus on file. Complete onboarding step 4.</p>
             )}
@@ -667,8 +791,40 @@ export default function Profile() {
                   {(sub.chapters || []).map((ch, ci) => (
                     <div key={ci} style={{ marginBottom: 10, marginLeft: 4 }}>
                       <div style={{ fontWeight: 600, color: G.text2, marginBottom: 4 }}>{ch.name}</div>
-                      <ul style={{ margin: 0, paddingLeft: 16, color: G.text3 }}>
-                        {(ch.topics || []).slice(0, 40).map((t, ti) => <li key={ti}>{t}</li>)}
+                      <ul style={{ margin: 0, paddingLeft: 16, color: G.text3, listStyle: 'none' }}>
+                        {(ch.topics || []).slice(0, 40).map((t, ti) => (
+                          <li
+                            key={ti}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              marginBottom: 6,
+                              padding: '4px 0',
+                              borderBottom: `1px solid ${G.border}`,
+                            }}
+                          >
+                            {syllabusEdit && syllabusEdit.si === si && syllabusEdit.ci === ci && syllabusEdit.ti === ti ? (
+                              <>
+                                <input
+                                  className="input"
+                                  style={{ flex: 1, fontSize: 12 }}
+                                  value={syllabusEditText}
+                                  onChange={(e) => setSyllabusEditText(e.target.value)}
+                                />
+                                <button type="button" className="btn btn-primary btn-sm" onClick={commitEditTopic}>Save</button>
+                                <button type="button" className="btn btn-secondary btn-sm" onClick={cancelEditTopic}>Cancel</button>
+                              </>
+                            ) : (
+                              <>
+                                <span style={{ flex: 1, lineHeight: 1.45 }}>{t}</span>
+                                <button type="button" className="btn btn-ghost btn-sm" onClick={() => beginEditTopic(si, ci, ti, t)}>
+                                  Edit
+                                </button>
+                              </>
+                            )}
+                          </li>
+                        ))}
                       </ul>
                     </div>
                   ))}

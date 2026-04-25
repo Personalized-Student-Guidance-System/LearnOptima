@@ -134,11 +134,15 @@ function AppRoutes() {
   );
 }
 
+import { StudyProvider } from './context/StudyContext';
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <StudyProvider>
+          <AppRoutes />
+        </StudyProvider>
       </AuthProvider>
     </BrowserRouter>
   );

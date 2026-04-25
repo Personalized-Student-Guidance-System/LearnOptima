@@ -275,6 +275,43 @@ async function reparseDocuments(req, res) {
 router.get('/documents/:type', auth, documentProxy);
 router.post('/reparse', auth, reparseDocuments);
 
+// ─── Upload document (resume / syllabus) → Cloudinary → save URL → reparse ──
+router.post('/upload-document', auth, async (req, res) => {
+  try {
+    const { upload, uploadToCloudinary } = require('../middleware/uploadMiddleware');
+    const docType = req.query.type || req.body?.type || 'resume'; // 'resume' | 'syllabus'
+    if (!['resume', 'syllabus'].includes(docType)) {
+      return res.status(400).json({ message: 'Invalid type. Use resume or syllabus.' });
+    }
+
+    // Process multipart upload using multer
+    const uploadSingle = upload.single('file');
+    await new Promise((resolve, reject) => uploadSingle(req, res, (err) => (err ? reject(err) : resolve())));
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded. Send file as multipart/form-data field "file".' });
+
+    const hasCloudinary = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+    if (!hasCloudinary) return res.status(503).json({ message: 'Cloudinary not configured. Please add env vars.' });
+
+    // Upload to Cloudinary
+    const folder = docType === 'resume' ? 'resumes' : 'syllabus';
+    const cloudResult = await uploadToCloudinary(req.file.buffer, folder, 'raw', req.file.mimetype);
+    const fileUrl = cloudResult.secure_url;
+
+    // Save URL to profile
+    let profile = await StudentProfile.findOne({ userId: req.user.id });
+    if (!profile) profile = await StudentProfile.create({ userId: req.user.id });
+    if (docType === 'resume') profile.resumeUrl = fileUrl;
+    else profile.syllabusUrl = fileUrl;
+    await profile.save();
+
+    // Trigger reparse automatically
+    req.body = {}; // ensure clean body for reparse
+    return reparseDocuments(req, res);
+  } catch (err) {
+    if (!res.headersSent) res.status(500).json({ message: err.message });
+  }
+});
+
 router.get('/', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');
@@ -293,6 +330,7 @@ router.put('/', auth, async (req, res) => {
     const {
       name, email, branch, semester, college, targetRole, targetRoles, customRole,
       bio, cgpa, goals, interests, skills, projects,
+      syllabusStructure, syllabusSubjects,
     } = req.body;
     const userId = req.user.id;
 
@@ -318,8 +356,23 @@ router.put('/', auth, async (req, res) => {
     if (cgpa       !== undefined) profile.cgpa = (cgpa == null || cgpa === '') ? undefined : Number(cgpa);
     if (Array.isArray(goals))     profile.goals      = goals;
     if (Array.isArray(interests)) profile.interests  = interests;
-    if (Array.isArray(projects))  profile.projects   = projects;
+    if (Array.isArray(projects)) {
+      // profile.projects is [String] — coerce any accidentally-sent objects to strings
+      const sanitizedProjects = projects
+        .filter(p => p !== null && p !== undefined)
+        .map(p => {
+          if (typeof p === 'string') return p.trim();
+          if (typeof p === 'object') return (p.title || JSON.stringify(p)).slice(0, 250);
+          return String(p);
+        })
+        .filter(s => s.length > 0);
+      profile.projects = sanitizedProjects;
+    }
     if (Array.isArray(skills))    profile.extraSkills= skills;  // user-added skills
+    if (syllabusStructure !== undefined && syllabusStructure !== null && typeof syllabusStructure === 'object') {
+      profile.syllabusStructure = syllabusStructure;
+    }
+    if (Array.isArray(syllabusSubjects)) profile.syllabusSubjects = syllabusSubjects;
 
     await profile.save();
 

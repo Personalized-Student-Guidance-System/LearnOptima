@@ -2,7 +2,12 @@ const router = require('express').Router();
 const auth = require('../middleware/auth');
 const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
+const DynamicRoadmap = require('../models/DynamicRoadmap');
 const mongoose = require('mongoose');
+
+function escapeRegex(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 const resourceScraper = require('../services/resourceScraper');
 const careerScraperNew = require('../services/careerScraper');
 const mlService = require('../services/mlService');
@@ -31,11 +36,31 @@ async function generateDynamicRoadmap(role, userId, location = 'India', refresh 
   try {
     console.log(`[DynamicRoadmap] Python ML scraping for ${role} (refresh=${refresh})`);
 
+    const roleKey = String(role || '').trim();
     const CACHE_TTL = 60 * 60 * 1000; // 1 hour
     const cacheKey = `roadmap_v5_${role.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${location.toLowerCase()}`;
     const now = Date.now();
 
-    // Try cache
+    // Persistent MongoDB cache (survives restarts; planner sync-roadmap reads this)
+    if (!refresh && roleKey) {
+      let saved = await DynamicRoadmap.findOne({ role: roleKey }).lean();
+      if (!saved?.semesters?.length) {
+        saved = await DynamicRoadmap.findOne({ role: new RegExp(`^${escapeRegex(roleKey)}$`, 'i') }).lean();
+      }
+      if (saved?.semesters?.length) {
+        console.log(`[DynamicRoadmap] Mongo HIT: ${roleKey}`);
+        const fromDb = {
+          semesters: saved.semesters,
+          isCustom: true,
+          scraped: saved.scraped !== false,
+          source: saved.source || 'mongo',
+        };
+        global[cacheKey] = { data: fromDb, timestamp: now };
+        return fromDb;
+      }
+    }
+
+    // Try in-memory cache
     if (!refresh) {
       const cached = global[cacheKey];
       if (cached && (now - cached.timestamp) < CACHE_TTL) {
@@ -86,6 +111,21 @@ async function generateDynamicRoadmap(role, userId, location = 'India', refresh 
 
           // Cache
           global[cacheKey] = { data: roadmap, timestamp: now };
+
+          DynamicRoadmap.findOneAndUpdate(
+            { role: roleKey },
+            {
+              $set: {
+                role: roleKey,
+                semesters,
+                source: result.source || 'python-scraper',
+                scraped: true,
+                location: String(location || 'India'),
+                updatedAt: new Date(),
+              },
+            },
+            { upsert: true, new: true }
+          ).then(() => console.log(`[DynamicRoadmap] Saved to Mongo: ${roleKey}`)).catch((e) => console.error('[DynamicRoadmap] Mongo save failed:', e.message));
 
           console.log(`[DynamicRoadmap] Python ML success: ${semesters.length} phases for ${role}`);
           resolve(roadmap);
