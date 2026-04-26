@@ -124,7 +124,7 @@ async function resumeStep(req, res) {
         const nodeResult = await parseResumeBuffer(req.file.buffer, req.file.mimetype);
         if (nodeResult) {
           if (nodeResult.skills?.length) extracted.skills = [...new Set([...extracted.skills, ...nodeResult.skills])];
-          if (nodeResult.projects?.length) extracted.projects = [...new Set([...extracted.projects, ...nodeResult.projects])];
+          if (nodeResult.projects?.length) extracted.projects = [...extracted.projects, ...nodeResult.projects];
           if (nodeResult.education?.length) extracted.education = nodeResult.education;
           if (nodeResult.experience?.length) extracted.experience = nodeResult.experience;
           if (nodeResult.certifications?.length) profile.extractedCertifications = nodeResult.certifications;
@@ -139,7 +139,27 @@ async function resumeStep(req, res) {
     profile.extractedSkills = extracted.skills || [];
     profile.extractedEducation = extracted.education || [];
     profile.extractedExperience = extracted.experience || [];
-    profile.projects = [...new Set([...(profile.projects || []), ...(extracted.projects || [])])];
+
+    // extracted.projects is an array of objects {title, description, techStack}
+    // — save them to extractedProjects (typed correctly) NOT projects ([String])
+    if (Array.isArray(extracted.projects) && extracted.projects.length) {
+      const existingTitles = new Set(
+        (profile.extractedProjects || []).map(p => (p.title || '').toLowerCase())
+      );
+      for (const p of extracted.projects) {
+        if (p && typeof p === 'object' && p.title) {
+          if (!existingTitles.has(p.title.toLowerCase())) {
+            existingTitles.add(p.title.toLowerCase());
+            profile.extractedProjects.push({
+              title:       p.title,
+              description: p.description || '',
+              techStack:   Array.isArray(p.techStack) ? p.techStack : [],
+            });
+          }
+        }
+      }
+    }
+
     await profile.save();
     log('Step2', `Profile saved: resumeUrl set, extractedSkills=${profile.extractedSkills?.length || 0}`);
 
