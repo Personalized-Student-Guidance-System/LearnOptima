@@ -54,12 +54,12 @@ async function profileStep(req, res) {
     profile.interests = interestsArr.length ? interestsArr : profile.interests;
     if (targetRole) profile.targetRole = targetRole;  // Save target role to profile if provided
     const savedProfile = await profile.save();
-    
+
     // Also save targetRole to User model for consistency
     if (targetRole) {
       await User.findByIdAndUpdate(req.user.id, { targetRole });
     }
-    
+
     log('Step1', `Profile saved: branch=${profile.branch} semester=${profile.semester} targetRole=${profile.targetRole} goals=${profile.goals?.length || 0} interests=${profile.interests?.length || 0}`);
     log('DB', `Verified StudentProfile in DB: id=${savedProfile._id} collection=studentprofiles userId=${savedProfile.userId}`);
 
@@ -139,27 +139,10 @@ async function resumeStep(req, res) {
     profile.extractedSkills = extracted.skills || [];
     profile.extractedEducation = extracted.education || [];
     profile.extractedExperience = extracted.experience || [];
-
-    // extracted.projects is an array of objects {title, description, techStack}
-    // — save them to extractedProjects (typed correctly) NOT projects ([String])
-    if (Array.isArray(extracted.projects) && extracted.projects.length) {
-      const existingTitles = new Set(
-        (profile.extractedProjects || []).map(p => (p.title || '').toLowerCase())
-      );
-      for (const p of extracted.projects) {
-        if (p && typeof p === 'object' && p.title) {
-          if (!existingTitles.has(p.title.toLowerCase())) {
-            existingTitles.add(p.title.toLowerCase());
-            profile.extractedProjects.push({
-              title:       p.title,
-              description: p.description || '',
-              techStack:   Array.isArray(p.techStack) ? p.techStack : [],
-            });
-          }
-        }
-      }
+    // extracted.projects is [{title, description, techStack}] — store in extractedProjects
+    if (extracted.projects?.length) {
+      profile.extractedProjects = extracted.projects;
     }
-
     await profile.save();
     log('Step2', `Profile saved: resumeUrl set, extractedSkills=${profile.extractedSkills?.length || 0}`);
 
@@ -178,6 +161,18 @@ async function skillsStep(req, res) {
     let { extraSkills, projects } = req.body;
     if (typeof extraSkills === 'string') try { extraSkills = JSON.parse(extraSkills); } catch { extraSkills = []; }
     if (typeof projects === 'string') try { projects = JSON.parse(projects); } catch { projects = []; }
+    // Sanitize: profile.projects is [String]. If the frontend accidentally sends
+    // objects (e.g. parsed resume projects), coerce each item to a plain string.
+    if (Array.isArray(projects)) {
+      projects = projects
+        .filter(p => p !== null && p !== undefined)
+        .map(p => {
+          if (typeof p === 'string') return p.trim();
+          if (typeof p === 'object') return (p.title || JSON.stringify(p)).slice(0, 250);
+          return String(p);
+        })
+        .filter(s => s.length > 0);
+    }
     const profile = await getOrCreateProfile(req.user.id);
     if (Array.isArray(extraSkills)) profile.extraSkills = extraSkills;
     if (Array.isArray(projects)) profile.projects = projects;

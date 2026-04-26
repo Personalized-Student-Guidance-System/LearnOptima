@@ -19,7 +19,11 @@ export default function Step3Skills() {
     onboardingService.getProfile().then((r) => {
       const p = r.data;
       if (p?.extraSkills?.length) setExtraSkills(p.extraSkills);
-      if (p?.projects?.length) setProjects(p.projects);
+      // Only pre-fill with plain strings — never with parsed object-shaped projects
+      if (Array.isArray(p?.projects)) {
+        const stringProjects = p.projects.filter(x => typeof x === 'string');
+        if (stringProjects.length) setProjects(stringProjects);
+      }
     }).catch(() => {});
   }, []);
 

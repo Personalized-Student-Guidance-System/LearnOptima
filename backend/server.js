@@ -38,7 +38,20 @@ app.use('/api/onboarding', require('./routes/onboardingRoutes'));
 app.use('/api/study', require('./routes/study'));
 
 const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const { Server } = require('socket.io');
+const AgentOrchestrator = require('./services/agentOrchestrator');
+const http = require('http');
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*' } // Adjust for prod
+});
+
+const agent = new AgentOrchestrator(io);
+agent.start();
+
+app.set('io', io); // For route access
+
+server.listen(PORT, () => console.log(`Server + Socket running on port ${PORT}`));
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

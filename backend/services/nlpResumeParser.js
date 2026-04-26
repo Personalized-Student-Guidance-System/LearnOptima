@@ -442,6 +442,8 @@ function extractProjects(lines) {
 
   function save() {
     if (!current?.title?.trim()) return;
+    // Require a minimum meaningful title (not a description line)
+    if (current.title.split(/\s+/).length < 2 && !current.desc) return;
     raw.push({
       title:       current.title.trim().slice(0, 120),
       description: current.desc.replace(/\s+/g, ' ').trim().slice(0, 500),
@@ -450,49 +452,54 @@ function extractProjects(lines) {
     current = null;
   }
 
+  // Patterns that indicate a line is a DESCRIPTION line, not a title
+  const DESCRIPTION_START_RE = /^(built|developed|designed|created|implemented|integrated|engineered|used|worked|added|deployed|the|a |an |this |it |we |i |–|—|-|•|\*|[a-z])/i;
+  // A line MUST match this to be considered a title without a bullet
+  const STRONG_TITLE_RE = /^[A-Z][A-Za-z0-9\s\-:&()'"]{2,}/;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
 
-    // Detect bullet-prefixed project title
-    const bulletMatch = line.match(/^[•*\-➢▪]\s*(.+?)(?:\s+[–\-]\s+(.+)|\s*:\s+(.+))?$/);
-
-    // Non-bullet line that looks like a project title
-    const looksLikeTitle =
-      !bulletMatch &&
-      line.length < 130 &&
-      /^[A-Z]/.test(line) &&
-      !/^(built|developed|designed|created|implemented|integrated|engineered|used|worked|added|deployed|the|a |an )/i.test(line) &&
-      !/^[-–]/.test(line) &&
-      line.split(/\s+/).length <= 14;
-
+    // Bullet-prefixed line → always a new project title
+    const bulletMatch = line.match(/^[\u2022*\-\u27a2\u25aa]\s*(.+)$/);
     if (bulletMatch) {
       save();
-      const title = bulletMatch[1].trim();
-      const rest  = (bulletMatch[2] || bulletMatch[3] || '').trim();
-      current = { title, desc: rest, tech: [] };
+      current = { title: bulletMatch[1].trim(), desc: '', tech: [] };
       continue;
     }
 
-    if (looksLikeTitle && !current) {
-      save();
-      current = { title: line, desc: '', tech: [] };
-      continue;
-    }
-
-    if (!current) current = { title: line, desc: '', tech: [] };
-
-    if (TECH_LINE_RE.test(line)) {
+    // Tech stack line inside current project
+    if (current && TECH_LINE_RE.test(line)) {
       const techPart = line.replace(TECH_LINE_RE, '').trim();
       splitSkillItems(techPart).forEach(t => current.tech.push(t));
       continue;
     }
 
-    current.desc += (current.desc ? ' ' : '') + line;
+    // Non-bullet line: only start a NEW project if:
+    //   1. No current project exists, AND
+    //   2. Line looks like a strong title (short, starts with capital, not a description verb)
+    const looksLikeTitle =
+      !current &&
+      line.length < 100 &&
+      line.split(/\s+/).length <= 10 &&
+      STRONG_TITLE_RE.test(line) &&
+      !DESCRIPTION_START_RE.test(line.toLowerCase()) &&
+      !/:$/.test(line) &&
+      !/^(\d{4}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(line);
+
+    if (looksLikeTitle) {
+      save();
+      current = { title: line, desc: '', tech: [] };
+      continue;
+    }
+
+    // Everything else is description content for the current project — never start a new project from an orphaned description line
+    if (current) current.desc += (current.desc ? ' ' : '') + line;
   }
   save();
 
-  // Deduplicate by title, keeping richest entry
+  // Deduplicate by title
   const byTitle = new Map();
   for (const p of raw) {
     const key = p.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').slice(0, 50);
@@ -502,10 +509,8 @@ function extractProjects(lines) {
     } else {
       byTitle.set(key, {
         title:       existing.title,
-        description: p.description.length > existing.description.length
-          ? p.description : existing.description,
-        techStack:   p.techStack.length > existing.techStack.length
-          ? p.techStack : existing.techStack,
+        description: p.description.length > existing.description.length ? p.description : existing.description,
+        techStack:   p.techStack.length > existing.techStack.length ? p.techStack : existing.techStack,
       });
     }
   }

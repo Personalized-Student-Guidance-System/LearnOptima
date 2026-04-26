@@ -36,7 +36,9 @@ export default function Register() {
           <div style={{ width: 28, height: 28, borderRadius: 7, background: G.text, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="14" height="14" viewBox="0 0 12 12" fill="white"><path d="M6 1L10.5 4V8L6 11L1.5 8V4L6 1Z"/></svg>
           </div>
-          <span style={{ fontWeight: 700, fontSize: 15, color: G.text }}>StudentFriend</span>
+          <span style={{ fontWeight: 700, fontSize: 15, color: G.text }}>LearnOptima
+            
+          </span>
         </div>
 
         <div className="card card-lg">

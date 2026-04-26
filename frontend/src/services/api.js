@@ -1,15 +1,25 @@
 import axios from 'axios';
+import io from 'socket.io-client';
 
 const API = axios.create({
   baseURL: '/api',
 });
 
-// Add token to requests (use 'sf_token' to match AuthContext)
+// Token interceptor
 API.interceptors.request.use((req) => {
-  const token = localStorage.getItem('sf_token') || localStorage.getItem('token');
+  const token =
+    localStorage.getItem('sf_token') || localStorage.getItem('token');
   if (token) req.headers.Authorization = `Bearer ${token}`;
   return req;
 });
+
+// Socket for StudyContext
+export const connectStudySocket = (token, userId, onAgentUpdate) => {
+  const socket = io('http://localhost:5000', { auth: { token } });
+  socket.emit('join', userId);
+  socket.on('agent-update', onAgentUpdate);
+  return () => socket.close();
+};
 
 // Auth
 export const login = (data) => API.post('/auth/login', data);
@@ -21,49 +31,65 @@ export const getTasks = (params) => API.get('/planner', { params });
 export const createTask = (data) => API.post('/planner', data);
 export const updateTask = (id, data) => API.put(`/planner/${id}`, data);
 export const deleteTask = (id) => API.delete(`/planner/${id}`);
-export const generateAIPLan = (data) => API.post('/planner/ai-generate', data);
+export const updateTaskStatus = (id, data) => API.post(`/planner/${id}/status`, data);
+export const getPlannerConstants = () => API.get('/planner/preferences/constants');
+export const savePlannerConstants = (data) => API.post('/planner/preferences/constants', data);
+export const triggerDailyReplan = () => API.post('/planner/daily-replan');
+export const getPlannerRisk = () => API.get('/planner/risk');
+export const addAcademicCalendarEvents = (events) => API.post('/planner/calendar', { events });
+export const syncDsaRoadmap = () => API.post('/planner/dsa/sync');
+export const syncSyllabusConcepts = (limit = 12) => API.post('/planner/syllabus/sync', { limit });
+export const generateTimetable = (days = 7) => API.post('/planner/timetable/generate', { days });
+export const runCentralOrchestration = () => API.post('/planner/orchestrate-daily');
+export const getOrchestrationRuns = (limit = 10) => API.get('/planner/orchestration-runs', { params: { limit } });
 
 // Goals
 export const getGoals = () => API.get('/goals');
 export const createGoal = (data) => API.post('/goals', data);
 export const updateGoal = (id, data) => API.put(`/goals/${id}`, data);
-export const deleteGoal = (id) => API.delete(`/goals/${id}`);
 export const analyzeGoal = (id) => API.post(`/goals/${id}/analyze`);
 
-// Academic
-export const getSubjects = () => API.get('/academic');
-export const createSubject = (data) => API.post('/academic', data);
-export const updateSubject = (id, data) => API.put(`/academic/${id}`, data);
-export const deleteSubject = (id) => API.delete(`/academic/${id}`);
-
-// Burnout
+// Burnout (incl. coach)
 export const getBurnoutData = () => API.get('/burnout');
 export const saveBurnoutData = (data) => API.post('/burnout/save-metrics', data);
 export const predictBurnout = (data) => API.post('/burnout/predict', data);
-export const startBurnoutCoach = () => API.post('/burnout/coach/start', {});
-export const sendBurnoutCoachMessage = (message) => API.post('/burnout/coach/message', { message });
+export const dailyCheckin = (data) => API.post('/burnout/daily-checkin', data);
+export const startBurnoutCoach = () => API.post('/burnout/coach/start');
+export const sendBurnoutCoachMessage = (msg) => API.post('/burnout/coach/message', { message: msg });
 
 // Skills
-export const getSkills = () => API.get('/skills');
-export const updateSkills = (data) => API.post('/skills', data);
-export const analyzeSkillGap = (role, refresh = false) => API.get('/skills/analyze', { params: { role, refresh } });
-export const getSkillLearningPath = (role) => API.get('/skills/learning-path', { params: { role } });
+/** @param {string} role @param {boolean} [refresh] */
+export const analyzeSkillGap = (role, refresh = false) =>
+  API.get('/skills/analyze', {
+    params: {
+      role,
+      ...(refresh ? { refresh: 'true' } : {}),
+    },
+  });
 export const getSkillAIRecommendation = (role) => API.get('/skills/ai-recommendation', { params: { role } });
-export const updateSkillLearningQueue = (skill, action) => API.put('/skills/learning-queue', { skill, action });
 
 // Career
-export const getCareerRoadmap = () => API.get('/career');
-export const updateCareerProgress = (data) => API.post('/career', data);
+export const getCareerRoadmap = (params) => API.get('/career/personalized', { params });
 
-// Study Time Tracking
-export const startStudySession = () => API.post('/study/session/start');
-export const endStudySession = () => API.post('/study/session/end');
-export const recordTaskTime = (taskId, timeSpent) => API.post('/study/task-time', { taskId, timeSpent });
-export const updateStudySessionPage = (page) => API.post('/study/session/page', { page });
+// Study
 export const getStudyStats = () => API.get('/study/stats');
-export const getStudyHistory = () => API.get('/study/history');
+export const startStudySession = (data = {}) => API.post('/study/session/start', data);
+export const endStudySession = (data = {}) => API.post('/study/session/end', data);
+export const updateStudySessionPage = (page) => API.post('/study/session/page', { page });
+export const recordTaskTime = (taskId, timeSpent, sessionId) =>
+  API.post('/study/task-time', { taskId, timeSpent, sessionId });
 
 // Profile
 export const updateProfile = (data) => API.put('/profile', data);
+export const getProfile = () => API.get('/profile');
+export const reparseProfileDocuments = () => API.post('/profile/reparse');
+/** Upload resume or syllabus file → Cloudinary → auto-reparse */
+export const uploadDocument = (file, type) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return API.post(`/profile/upload-document?type=${type}`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
 
 export default API;

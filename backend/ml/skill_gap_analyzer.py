@@ -192,9 +192,12 @@ def _cache_set(role: str, data: Dict):
     coll = _connect_mongo_cache()
     if coll is not None:
         try:
+            # BSON-safe document (avoids odd types from numpy/pandas in nested structures)
+            import json as _json
+            safe_data = _json.loads(_json.dumps(data, default=str))
             coll.replace_one(
                 {"cacheKey": key},
-                {"cacheKey": key, "ts": ts, "data": data},
+                {"cacheKey": key, "ts": ts, "data": safe_data},
                 upsert=True,
             )
             print(f"[SkillCache] Saved: {role}")

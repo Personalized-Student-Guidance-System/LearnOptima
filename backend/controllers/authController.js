@@ -4,18 +4,29 @@ const StudentProfile = require('../models/StudentProfile');
 
 function toUserResponse(user, profile = null) {
   const u = user.toObject ? user.toObject() : user;
+
+  // Merge targetRoles from both sources: StudentProfile takes priority
+  const profileRoles  = Array.isArray(profile?.targetRoles)  ? profile.targetRoles  : [];
+  const userRoles     = Array.isArray(u.targetRoles)          ? u.targetRoles         : [];
+  const mergedRoles   = profileRoles.length ? profileRoles : userRoles;
+
+  // Primary role: StudentProfile > User > first in merged list
+  const primaryRole   = profile?.targetRole || u.targetRole || mergedRoles[0] || null;
+
   const out = {
-    id: u._id,
-    name: u.name,
-    email: u.email,
+    id:                  u._id,
+    name:                u.name,
+    email:               u.email,
     onboardingCompleted: u.onboardingCompleted ?? false,
-    onboardingStep: u.onboardingStep ?? 1,
-    // Prioritize StudentProfile.targetRole (where existing users have their data), fallback to User.targetRole
-    targetRole: (profile?.targetRole) || u.targetRole || null,
+    onboardingStep:      u.onboardingStep ?? 1,
+    targetRole:          primaryRole,
+    targetRoles:         mergedRoles.length ? mergedRoles : (primaryRole ? [primaryRole] : []),
+    cgpa:                profile?.cgpa ?? u.cgpa ?? null,
   };
+
   if (profile && u.onboardingCompleted) {
-    out.branch = profile.branch;
-    out.semester = profile.semester;
+    out.branch   = profile.branch   || u.branch;
+    out.semester = profile.semester || u.semester;
   }
   return out;
 }

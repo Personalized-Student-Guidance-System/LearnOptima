@@ -762,6 +762,88 @@ router.post('/coach/message', auth, async (req, res) => {
   }
 });
 
+const BurnoutLog = require('../models/BurnoutLog');
+
+// ─── NEW: POST /daily-checkin ─────────────────────────────────────────────────
+router.post('/daily-checkin', auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const oid = new mongoose.Types.ObjectId(userId);
+    
+    const { 
+      studyHoursActual,  // User-input actual study hrs
+      sleepHours,
+      performanceRating, // Poor/Fair/Good/Excellent
+      performanceNotes,  // Why low → AI input
+      undoneReasons = [] // [{taskId, reasonCategory, reasonText}]
+    } = req.body;
+
+    // 1. Fetch TOP 3 OVERDUE undone tasks
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const overdueTasks = await Task.find({
+      user: oid,
+      date: { $lt: new Date() }, // Past due
+      completed: false
+    }).sort({ date: 1, priority: -1 }).limit(3).select('_id title date priority');
+
+    // 2. Validate/expand undoneReasons to match tasks
+    const validatedUndone = undoneReasons.map(ur => ({
+      taskId: ur.taskId,
+      title: overdueTasks.find(t => t._id.toString() === ur.taskId)?.title || 'Unknown',
+      reasonCategory: ur.reasonCategory || 'Other',
+      reasonText: ur.reasonText || ''
+    })).slice(0, 3); // Top 3 max
+
+    // 3. ML Predict + Agent Decision
+    const predictPayload = {
+      studyHours: studyHoursActual || 0,
+      sleepHours: sleepHours || 7,
+      socialTime: 1, // Default
+      exerciseTime: 1,
+      deadlinePressure: 5,
+      academicLoad: 5
+    };
+    const mlRes = await axios.post('http://localhost:5001/predict-burnout', predictPayload).catch(() => ({}));
+    const score = mlRes.data?.score || 50;
+    const level = mlRes.data?.level || 'Moderate';
+
+    // 4. Agent Decision Tree → Action
+    let agentAction = 'monitored';
+    if (score > 70 || performanceRating === 'Poor') {
+      agentAction = 'reschedule_pending'; // Trigger planner agent
+      // TODO: Call agentOrchestrator.reschedule() here
+    } else if (score > 50) {
+      agentAction = 'coach_intervention';
+    }
+
+    // 5. Log to History
+    const log = await BurnoutLog.create({
+      userId: oid,
+      studyHours: studyHoursActual,
+      sleepHours,
+      performanceRating,
+      performanceNotes,
+      undoneTasks: validatedUndone,
+      burnoutScore: score,
+      burnoutLevel: level,
+      agentAction
+    });
+
+    res.json({
+      success: true,
+      logId: log._id,
+      score, level, agentAction,
+      overdueCount: overdueTasks.length,
+      validatedUndone,
+      next: agentAction === 'reschedule_pending' ? 'Planner will auto-adjust tomorrow' : 'Good day—keep it up!'
+    });
+  } catch (err) {
+    console.error('[DailyCheckin] Error:', err);
+    res.status(500).json({ message: 'Check-in failed', error: err.message });
+  }
+});
+
 module.exports = router;
 
 

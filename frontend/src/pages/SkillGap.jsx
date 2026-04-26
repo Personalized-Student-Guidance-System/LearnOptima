@@ -178,25 +178,31 @@ export default function SkillGap() {
     setTimeout(() => setToastMsg(''), 3000);
   };
   
-  const [allRoles, setAllRoles] = useState(
-    user?.targetRoles?.length ? user.targetRoles : [user?.targetRole || 'Software Engineer']
-  );
+  const [allRoles, setAllRoles] = useState(() => {
+    // Initial value from auth context; will be refreshed from profile API on mount
+    if (user?.targetRoles?.length) return user.targetRoles;
+    if (user?.targetRole) return [user.targetRole];
+    return ['Software Engineer'];
+  });
 
   useEffect(() => {
     const initRoles = async () => {
       try {
         const profileRes = await API.getStudentProfile();
         const profile = profileRes.data;
-        const roles = profile.targetRoles?.length
-          ? profile.targetRoles
-          : [profile.targetRole || 'Software Engineer'];
+
+        // Build merged roles: profile API is source of truth
+        const profileRoles = Array.isArray(profile.targetRoles) ? profile.targetRoles.filter(Boolean) : [];
+        const fallbackRole = profile.targetRole || user?.targetRole || 'Software Engineer';
+        const roles = profileRoles.length ? profileRoles : [fallbackRole];
+
         setAllRoles(roles);
 
-        if (!roles.includes(selectedRole)) {
-          setSelectedRole(profile.targetRole || roles[0]);
-        }
+        // Correct selectedRole if it's not in the refreshed list
+        setSelectedRole(prev => roles.includes(prev) ? prev : (profile.targetRole || roles[0]));
       } catch (e) {
-        // ignore
+        // Keep existing allRoles — do not reset to empty on error
+        console.warn('[SkillGap] Could not fetch profile roles:', e.message);
       }
     };
     initRoles();

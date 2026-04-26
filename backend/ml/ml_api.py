@@ -94,5 +94,12 @@ def reschedule():
     new_schedule = agent.generate_daily_schedule(roadmap_phases, existing_tasks, user_prefs)
     return jsonify({'tasks': new_schedule})
 
+@app.route('/orchestrate', methods=['POST'])
+def orchestrate():
+    data = request.json
+    agent = BurnoutAwarePlannerAgent()
+    result = agent.orchestrate(data)
+    return jsonify(result)
+
 if __name__ == '__main__':
     app.run(port=5001, debug=True)
