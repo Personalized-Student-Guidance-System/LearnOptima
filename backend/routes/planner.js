@@ -206,6 +206,20 @@ function dayName(date) {
   return new Date(date).toLocaleDateString('en-US', { weekday: 'short' });
 }
 
+function combineDateAndTime(date, hhmm = '23:59') {
+  const [h, m] = String(hhmm || '23:59').split(':').map((v) => Number(v) || 0);
+  const d = new Date(date);
+  d.setHours(Math.max(0, Math.min(23, h)), Math.max(0, Math.min(59, m)), 0, 0);
+  return d;
+}
+
+function getTaskEndDateTime(task) {
+  if (task.endTime) return combineDateAndTime(task.date, task.endTime);
+  const startMin = parseTimeToMinutes(task.startTime || '19:00', '19:00');
+  const durMin = Math.max(25, Math.round((task.duration || 3600) / 60));
+  return combineDateAndTime(task.date, minutesToTime(Math.min(23 * 60 + 59, startMin + durMin)));
+}
+
 function extractCollegeBlocksForDay(profile, date) {
   const timetable = profile?.timetable || {};
   const targetDay = dayName(date).toLowerCase();
@@ -336,7 +350,20 @@ router.get('/', auth, async (req, res) => {
 
 router.post('/', auth, async (req, res) => {
   try {
-    const task = await Task.create({ ...req.body, user: req.user.id });
+    const profile = await StudentProfile.findOne({ userId: req.user.id }).lean();
+    const body = { ...(req.body || {}) };
+    const baseStart = profile?.plannerPreferences?.comfortableStart || '19:00';
+
+    if (!body.startTime) body.startTime = baseStart;
+    if (!body.endTime) {
+      const startMin = parseTimeToMinutes(body.startTime, baseStart);
+      const durMin = body.duration ? Math.max(25, Math.round(Number(body.duration) / 60)) : 60;
+      const endMin = Math.min(startMin + durMin, parseTimeToMinutes(profile?.plannerPreferences?.comfortableEnd || '23:00', '23:00'));
+      body.endTime = minutesToTime(endMin);
+      if (!body.duration) body.duration = durMin * 60;
+    }
+
+    const task = await Task.create({ ...body, user: req.user.id });
     res.status(201).json(task);
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
@@ -414,6 +441,29 @@ router.post('/:id/status', auth, async (req, res) => {
     const { completed, reasonText = '' } = req.body || {};
     const task = await Task.findOne({ _id: req.params.id, user: req.user.id });
     if (!task) return res.status(404).json({ message: 'Task not found' });
+
+    if (completed === true) {
+      const now = new Date();
+      const taskEnd = getTaskEndDateTime(task);
+      if (now > taskEnd) {
+        const tomorrow = getTodayStart();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        task.completed = false;
+        task.completionReason = reasonText || 'Completion attempted after task time window.';
+        task.date = tomorrow;
+        task.rollovers = Math.min(3, (task.rollovers || 0) + 1);
+        task.priority = task.rollovers >= 2 ? 'high' : task.priority;
+        task.movedByAgent = 'planner-time-guard';
+        task.movedReason = 'Completion window exceeded; task moved to next feasible day.';
+        task.explanation = 'Task cannot be marked complete after its planned time window. It has been rescheduled.';
+        await task.save();
+        return res.status(409).json({
+          message: 'Task time window has passed. It was rescheduled to the next day.',
+          code: 'TASK_WINDOW_EXCEEDED',
+          task,
+        });
+      }
+    }
 
     task.completed = !!completed;
     task.completionReason = reasonText;
@@ -494,44 +544,62 @@ function escapeRegex(s) {
 router.post('/sync-roadmap', auth, async (req, res) => {
   try {
     let { role } = req.body || {};
-    // Always fetch profile (we need it for prefs)
     const profileDoc = await StudentProfile.findOne({ userId: req.user.id }).lean();
     if (!role) {
-      role = profileDoc?.targetRole || (Array.isArray(profileDoc?.targetRoles) && profileDoc.targetRoles[0]) || '';
+      role = profileDoc?.targetRole
+        || (Array.isArray(profileDoc?.targetRoles) && profileDoc.targetRoles[0])
+        || '';
     }
     if (!role) {
       return res.status(400).json({ message: 'No target role. Set target role in Profile or pass role in the request body.' });
     }
 
-    let roadmap = await DynamicRoadmap.findOne({ role }).catch(() => null);
-    if (!roadmap) {
-      roadmap = await DynamicRoadmap.findOne({ role: new RegExp(`^${escapeRegex(role)}$`, 'i') });
+    // ── Fetch phases from the career route (uses in-memory cache or spawns Python) ──
+    let semesters = [];
+    try {
+      // Re-use the same generateDynamicRoadmap logic via an internal HTTP call
+      const careerRes = await axios.get(
+        `http://localhost:${process.env.PORT || 5000}/api/career/personalized`,
+        {
+          params: { role, location: 'India' },
+          headers: { Authorization: req.headers.authorization },
+          timeout: 180000,
+        }
+      );
+      semesters = (careerRes.data?.phases || []).map((p, i) => ({
+        sem: i + 1,
+        title: p.title || `Phase ${i + 1}`,
+        duration: p.duration || '4-8 weeks',
+        tasks: p.tasks || p.skills || [],
+        resources: p.resources || [],
+      }));
+    } catch (careerErr) {
+      console.warn('[sync-roadmap] Career API call failed:', careerErr.message);
     }
-    if (!roadmap || !roadmap.semesters?.length) {
+
+    if (!semesters.length) {
       return res.status(404).json({
-        message: 'No roadmap in database for this role yet. Open Career Roadmap once (same role) to generate and save it, then try again.',
+        message: 'Could not load roadmap phases for this role. Open Career Roadmap page once to generate it, then try again.',
         role,
       });
     }
-    
-    // 2. Get existing tasks to avoid conflicts
+
     const today = new Date();
-    today.setHours(0,0,0,0);
+    today.setHours(0, 0, 0, 0);
     const existingTasks = await Task.find({ user: req.user.id, date: { $gte: today } });
-    
-    // 3. User Prefs (for burnout model)
+
     const userPrefs = {
-        max_study_hours: 4,
-        sleep_hours: req.user.sleepHours || 7,
-        academic_load: 5,
-        deadline_pressure: 5
+      max_study_hours: 4,
+      sleep_hours: 7,
+      academic_load: 5,
+      deadline_pressure: 5,
     };
-    
-    // 4. Send to Python Agent (optional — fallback keeps planner usable without ML)
+
+    // Try ML reschedule
     let mlRes;
     try {
       mlRes = await axios.post(`${ML_URL}/reschedule`, {
-        phases: roadmap.semesters,
+        phases: semesters,
         existing_tasks: existingTasks,
         user_prefs: userPrefs,
       }, { timeout: 120000 });
@@ -541,58 +609,54 @@ router.post('/sync-roadmap', auth, async (req, res) => {
     }
 
     if (mlRes.data && mlRes.data.tasks?.length) {
-      await Task.deleteMany({
-        user: req.user.id,
-        date: { $gte: today },
-        aiGenerated: true,
-        title: { $regex: /^Roadmap:/ },
-      });
-
-      const newTasks = mlRes.data.tasks.map((t) => ({
-        ...t,
-        user: req.user.id,
-        date: new Date(t.date),
-      }));
-
+      await Task.deleteMany({ user: req.user.id, date: { $gte: today }, aiGenerated: true, title: { $regex: /^Roadmap:/ } });
+      const newTasks = mlRes.data.tasks.map(t => ({ ...t, user: req.user.id, date: new Date(t.date) }));
       const created = await Task.insertMany(newTasks);
       return res.json({ source: 'ml', tasks: created });
     }
 
-    // Fallback: one Roadmap task per upcoming semester block (no Python required)
-    // Use user's preferred study start time (defaults to 7pm for college students)
+    // Node fallback — one task per phase
     const preferredStart = profileDoc?.plannerPreferences?.comfortableStart || '19:00';
-    await Task.deleteMany({
-      user: req.user.id,
-      date: { $gte: today },
-      aiGenerated: true,
-      title: { $regex: /^Roadmap:/ },
-    });
-    const fallbackPayload = [];
-    roadmap.semesters.slice(0, 8).forEach((sem, idx) => {
+    const [startH, startM] = preferredStart.split(':').map(Number);
+    const startMin = startH * 60 + startM;
+    const endTime = `${String(Math.floor(Math.min(startMin + 90, 23 * 60 + 30) / 60)).padStart(2, '0')}:${String(Math.min(startMin + 90, 23 * 60 + 30) % 60).padStart(2, '0')}`;
+
+    await Task.deleteMany({ user: req.user.id, date: { $gte: today }, aiGenerated: true, title: { $regex: /^Roadmap:/ } });
+
+    const fallbackPayload = semesters.slice(0, 8).map((sem, idx) => {
       const d = new Date(today);
       d.setDate(d.getDate() + idx * 2);
-      const title = sem.title ? `Roadmap: ${sem.title}` : `Roadmap: Semester ${sem.sem || idx + 1}`;
-      const firstTask = Array.isArray(sem.tasks) && sem.tasks[0] ? sem.tasks[0] : (sem.skills && sem.skills[0]) || `Progress ${title}`;
-      fallbackPayload.push({
+      const title = sem.title ? `Roadmap: ${sem.title}` : `Roadmap: Phase ${sem.sem || idx + 1}`;
+      const firstTask = (sem.tasks || [])[0] || (sem.skills || [])[0] || title;
+      return {
         user: req.user.id,
         title,
         description: String(firstTask).slice(0, 500),
         date: d,
         startTime: preferredStart,
-        endTime: '',
+        endTime,
         duration: 90 * 60,
         category: 'study',
         priority: idx < 2 ? 'high' : 'medium',
         aiGenerated: true,
-        movedByAgent: 'planner-fallback',
-        movedReason: 'ML /reschedule unavailable — generated from saved Mongo roadmap',
-        explanation: 'Open Career Roadmap once to refresh scraped phases; tasks come from stored roadmap.',
-      });
+        movedByAgent: 'career-planner-agent',
+        movedReason: `Career roadmap phase synced from live ${role} roadmap`,
+        explanation: `Phase "${sem.title}" synced from Career Roadmap. Complete tasks in Career Roadmap to progress.`,
+      };
     });
+
     const created = await Task.insertMany(fallbackPayload);
-    return res.json({ source: 'mongo-roadmap-fallback', tasks: created, warning: 'ML service did not return tasks; used saved roadmap only.' });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+    return res.json({
+      source: 'career-api-fallback',
+      tasks: created,
+      role,
+      phasesLoaded: semesters.length,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
+
 
 const AcademicEvent = require('../models/AcademicEvent');
 
@@ -793,6 +857,47 @@ router.post('/daily-replan', auth, async (req, res) => {
       );
     }
 
+    // ── Learning Queue → Planner (1 per day) ────────────────────────────────
+    // If the user has queued skills, ensure there is at least one "Learn:" task
+    // scheduled for tomorrow (or today if you want to study immediately).
+    try {
+      const queued = Array.isArray(profile?.skillsToLearn) ? profile.skillsToLearn.filter(Boolean) : [];
+      const nextSkill = queued[0] ? String(queued[0]).trim() : '';
+      if (nextSkill) {
+        const existing = await Task.findOne({
+          user: userId,
+          completed: false,
+          title: `Learn: ${nextSkill}`,
+          date: { $gte: today, $lte: tomorrow },
+        }).lean();
+        if (!existing) {
+          const baseStart = profile?.plannerPreferences?.comfortableStart || '19:00';
+          const baseEnd = profile?.plannerPreferences?.comfortableEnd || '23:00';
+          const startMin = parseTimeToMinutes(baseStart, '19:00');
+          const endMin = Math.min(startMin + 60, parseTimeToMinutes(baseEnd, '23:00'));
+          await Task.create({
+            user: userId,
+            title: `Learn: ${nextSkill}`,
+            description: `Daily learning task from your queued skills. Focus on ${nextSkill}.`,
+            date: tomorrow,
+            startTime: minutesToTime(startMin),
+            endTime: minutesToTime(endMin),
+            duration: 60 * 60,
+            category: 'study',
+            priority: 'high',
+            completed: false,
+            aiGenerated: true,
+            plannerMode: mode,
+            movedByAgent: 'skill-queue-agent',
+            movedReason: 'Daily replan injected queued skill',
+            explanation: `Added because "${nextSkill}" is in your learning queue. One queued skill is scheduled each day until completed.`,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[daily-replan] learning queue injection failed:', e.message);
+    }
+
     res.json({
       success: true,
       mode,
@@ -859,7 +964,16 @@ router.post('/timetable/generate', auth, async (req, res) => {
 
       const dayTasks = tasks.filter((t) => toIsoDate(t.date) === dateIso);
       const cap = Math.max(2, Math.round(modeTaskCap(mode) * multiplier));
-      const selected = dayTasks.slice(0, cap);
+      const selected = dayTasks
+        .slice()
+        .sort((a, b) => {
+          const pa = a.priority === 'high' ? 2 : a.priority === 'medium' ? 1 : 0;
+          const pb = b.priority === 'high' ? 2 : b.priority === 'medium' ? 1 : 0;
+          if (pb !== pa) return pb - pa;
+          if ((b.rollovers || 0) !== (a.rollovers || 0)) return (b.rollovers || 0) - (a.rollovers || 0);
+          return (b.aiGenerated ? 0 : 1) - (a.aiGenerated ? 0 : 1);
+        })
+        .slice(0, cap);
       const timeline = [];
 
       // Add blocked blocks first (for UI clarity)
@@ -1136,6 +1250,9 @@ router.post('/syllabus/sync', auth, async (req, res) => {
     const baseStart = profile?.plannerPreferences?.comfortableStart || '17:00';
     const intervalDays = mode === 'strict' ? 0 : 1;
     const durationMin = mode === 'recovery' ? 35 : 50;
+    const startMin = parseTimeToMinutes(baseStart, '19:00');
+    const endMin = Math.min(startMin + durationMin, parseTimeToMinutes(profile?.plannerPreferences?.comfortableEnd || '23:00', '23:00'));
+    const endTime = minutesToTime(endMin);
 
     const tasks = extracted.map((item, idx) => {
       const subShort = String(item.subject || 'Subject').replace(/\s+/g, ' ').trim().slice(0, 48);
@@ -1145,7 +1262,7 @@ router.post('/syllabus/sync', auth, async (req, res) => {
       description: `${item.subject} — ${item.chapter}`,
       date: addDays(today, idx * intervalDays),
       startTime: baseStart,
-      endTime: '',
+      endTime,
       duration: durationMin * 60,
       category: 'study',
       priority: idx < 3 ? 'high' : 'medium',

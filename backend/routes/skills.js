@@ -6,8 +6,59 @@ const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
 const Task = require('../models/Task');
 const axios = require('axios');
+const { orchestrateDailyForUser } = require('../services/centralPlannerOrchestrator');
 
 const ML_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+function parseTimeToMinutes(value, fallback) {
+  const v = String(value || fallback || '00:00');
+  const m = v.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return parseTimeToMinutes(fallback || '00:00', '00:00');
+  const hh = Math.max(0, Math.min(23, Number(m[1])));
+  const mm = Math.max(0, Math.min(59, Number(m[2])));
+  return hh * 60 + mm;
+}
+
+function minutesToTime(min) {
+  const m = Math.max(0, Math.min(24 * 60 - 1, Math.round(min)));
+  const hh = String(Math.floor(m / 60)).padStart(2, '0');
+  const mm = String(m % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function resolveTargetRole({ queryRole, profile, user }) {
+  const q = String(queryRole || '').trim();
+  if (q) return q;
+
+  const profileTargetRoles = Array.isArray(profile?.targetRoles)
+    ? profile.targetRoles.filter(Boolean).map((r) => String(r).trim()).filter(Boolean)
+    : [];
+  const userTargetRoles = Array.isArray(user?.targetRoles)
+    ? user.targetRoles.filter(Boolean).map((r) => String(r).trim()).filter(Boolean)
+    : [];
+
+  return (
+    String(profile?.targetRole || '').trim()
+    || profileTargetRoles[0]
+    || String(user?.targetRole || '').trim()
+    || userTargetRoles[0]
+    || 'Software Engineer'
+  );
+}
+
+function uniqStrings(arr) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(arr) ? arr : []) {
+    const s = String(raw || '').trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
 
 // ─── Spawn Python skill_gap_analyzer.py ────────────────────────────────────────
 function runPythonSkillGap(userSkills, role, location = 'India', refresh = false) {
@@ -177,7 +228,7 @@ router.get('/analyze', auth, async (req, res) => {
   const user = await User.findById(userId).catch(() => null);
   if (!user) return res.status(404).json({ message: 'User not found' });
 
-  const targetRole = queryRole || profile?.targetRole || user?.targetRole || 'Software Engineer';
+  const targetRole = resolveTargetRole({ queryRole, profile, user });
 
   // Combine all user skills
   const allSkills = [
@@ -237,7 +288,7 @@ router.get('/ai-recommendation', auth, async (req, res) => {
     ...(user?.skills || []),
   ].filter((s, i, a) => s && a.indexOf(s) === i);
 
-  const targetRole = queryRole || profile?.targetRole || user?.targetRole || 'Software Engineer';
+  const targetRole = resolveTargetRole({ queryRole, profile, user });
 
   // Get cached ML data to feed the recommendation
   const cached = getCache(targetRole);
@@ -325,7 +376,7 @@ router.get('/ai-recommendation', auth, async (req, res) => {
 router.get('/learning-path', auth, async (req, res) => {
   const profile = await StudentProfile.findOne({ userId: req.user.id }).catch(() => null);
   const user = await User.findById(req.user.id).catch(() => null);
-  const targetRole = req.query.role || profile?.targetRole || user?.targetRole || 'Software Engineer';
+  const targetRole = resolveTargetRole({ queryRole: req.query.role, profile, user });
   const cached = getCache(targetRole);
 
   res.json({
@@ -347,32 +398,84 @@ router.put('/learning-queue', auth, async (req, res) => {
       profile = new StudentProfile({ userId, skillsToLearn: [] });
     }
     if (action === 'add') {
+      const normalizedSkill = String(skill || '').trim();
+      if (!normalizedSkill) {
+        return res.status(400).json({ message: 'Skill is required' });
+      }
       if (!profile.skillsToLearn) profile.skillsToLearn = [];
-      if (!profile.skillsToLearn.includes(skill)) {
-        profile.skillsToLearn.push(skill);
-        // Append task to planner
-        try {
-          const today = new Date();
-          await Task.create({
-            user: userId,
-            title: `Learn: ${skill}`,
-            description: `Skill automatically added from Skill Gap Analyzer. Focus on learning ${skill} to improve candidate match score.`,
-            date: today,
-            startTime: '10:00',
-            endTime: '11:00',
-            duration: 3600,
-            category: 'study',
-            priority: 'high',
-            aiGenerated: true
-          });
-        } catch (taskErr) {
-          console.error('[LearningQueue] Failed to append task to planner:', taskErr.message);
-        }
+      if (!profile.skillsToLearn.some((s) => String(s || '').trim().toLowerCase() === normalizedSkill.toLowerCase())) {
+        profile.skillsToLearn.push(normalizedSkill);
       }
     } else if (action === 'remove') {
-      profile.skillsToLearn = (profile.skillsToLearn || []).filter(s => s !== skill);
+      const normalizedSkill = String(skill || '').trim().toLowerCase();
+      profile.skillsToLearn = (profile.skillsToLearn || []).filter(
+        (s) => String(s || '').trim().toLowerCase() !== normalizedSkill
+      );
+      if (normalizedSkill) {
+        try {
+          await Task.deleteMany({
+            user: userId,
+            completed: false,
+            title: new RegExp(`^Learn:\\s*${normalizedSkill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          });
+        } catch (taskErr) {
+          console.error('[LearningQueue] Failed to remove queued planner task:', taskErr.message);
+        }
+      }
+    } else if (action === 'complete') {
+      const normalizedSkill = String(skill || '').trim();
+      if (normalizedSkill) {
+        // remove from learning queue
+        profile.skillsToLearn = (profile.skillsToLearn || []).filter(
+          (s) => String(s || '').trim().toLowerCase() !== normalizedSkill.toLowerCase()
+        );
+
+        // add to profile extraSkills (source of truth for manual skills)
+        const existingExtra = uniqStrings(profile.extraSkills || []);
+        const hasAlready = existingExtra.some((s) => s.toLowerCase() === normalizedSkill.toLowerCase());
+        if (!hasAlready) {
+          existingExtra.push(normalizedSkill);
+          profile.extraSkills = existingExtra;
+        }
+
+        // also mirror into User.skills for older parts of the app
+        try {
+          const user = await User.findById(userId).select('skills');
+          if (user) {
+            const merged = uniqStrings([...(user.skills || []), normalizedSkill]);
+            user.skills = merged;
+            await user.save();
+          }
+        } catch (e) {
+          console.warn('[LearningQueue] Could not mirror completed skill into User.skills:', e.message);
+        }
+
+        try {
+          await Task.deleteMany({
+            user: userId,
+            completed: false,
+            title: new RegExp(`^Learn:\\s*${normalizedSkill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          });
+        } catch (taskErr) {
+          console.error('[LearningQueue] Failed to remove completed-skill planner task:', taskErr.message);
+        }
+      }
     }
     await profile.save();
+
+    // Always run planner orchestration after queue mutation so Skill Gap queue
+    // is reflected in the planner schedule with proper capacity/collision logic.
+    setImmediate(async () => {
+      try {
+        await orchestrateDailyForUser({
+          userId,
+          trigger: `skill-queue-${action || 'update'}`,
+        });
+      } catch (e) {
+        console.warn('[LearningQueue] Post-update orchestration failed:', e.message);
+      }
+    });
+
     res.json({ message: 'Learning queue updated', skillsToLearn: profile.skillsToLearn });
   } catch (err) {
     console.error('Learning queue error:', err);
@@ -384,7 +487,7 @@ router.put('/learning-queue', auth, async (req, res) => {
 router.get('/gap-analysis', auth, async (req, res) => {
   const user = await User.findById(req.user.id);
   const profile = await StudentProfile.findOne({ userId: req.user.id });
-  const targetRole = req.query.role || profile?.targetRole || user?.targetRole || 'Software Engineer';
+  const targetRole = resolveTargetRole({ queryRole: req.query.role, profile, user });
   const cached = getCache(targetRole);
   if (cached) {
     return res.json({

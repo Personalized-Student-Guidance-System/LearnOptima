@@ -98,8 +98,9 @@ const studentProfileSchema = new mongoose.Schema({
     wakeTime: { type: String, default: '06:30' },
     sleepTime: { type: String, default: '23:00' },
     dinnerTime: { type: String, default: '20:00' },
-    comfortableStart: { type: String, default: '17:00' },
-    comfortableEnd: { type: String, default: '22:00' },
+    // Default to 7pm–11pm (college student evening window)
+    comfortableStart: { type: String, default: '19:00' },
+    comfortableEnd: { type: String, default: '23:00' },
     hobbies: { type: [String], default: [] },
     weekendHoliday: { type: Boolean, default: true },
     holidayEssentialTasks: { type: [String], default: ['light revision'] },

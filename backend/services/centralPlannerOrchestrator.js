@@ -165,7 +165,7 @@ function getSemesterTopics(semester = 1) {
 }
 
 function parseTimeMin(t) {
-  const [h, m] = String(t || '17:30').split(':').map(Number);
+  const [h, m] = String(t || '19:00').split(':').map(Number);
   return (h || 0) * 60 + (m || 0);
 }
 function minToTime(min) {
@@ -174,7 +174,298 @@ function minToTime(min) {
   return `${h}:${m}`;
 }
 
-async function createDsaTasks({ userId, profile, today, mode, examDays = new Set() }) {
+function getDayStart(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getDayEnd(date) {
+  const d = getDayStart(date);
+  d.setDate(d.getDate() + 1);
+  return d;
+}
+
+function getStudyWindowsForDate(profile, date) {
+  const prefs = profile?.plannerPreferences || {};
+  const start = parseTimeMin(prefs.comfortableStart || '19:00');
+  const end = parseTimeMin(prefs.comfortableEnd || '23:00');
+  const dinnerStart = parseTimeMin(prefs.dinnerTime || '20:00');
+  const dinnerEnd = Math.min(end, dinnerStart + 45);
+  if (end <= start) return [];
+  if (dinnerStart >= end || dinnerEnd <= start) return [{ start, end }];
+  const windows = [];
+  if (dinnerStart > start) windows.push({ start, end: dinnerStart });
+  if (dinnerEnd < end) windows.push({ start: dinnerEnd, end });
+  return windows.filter((w) => w.end - w.start >= 25);
+}
+
+function getTaskStartEndMin(task) {
+  const startMin = parseTimeMin(task.startTime || '19:00');
+  const fallbackDuration = Math.max(30, Math.round((task.duration || 3600) / 60));
+  const endMin = task.endTime ? parseTimeMin(task.endTime) : Math.min(23 * 60 + 59, startMin + fallbackDuration);
+  return { startMin, endMin: Math.max(startMin + 25, endMin) };
+}
+
+function findFeasibleSlot({ windows, existingTasks, durationMin }) {
+  const sorted = [...existingTasks]
+    .map(getTaskStartEndMin)
+    .sort((a, b) => a.startMin - b.startMin);
+
+  for (const win of windows) {
+    let cursor = win.start;
+    for (const itv of sorted) {
+      if (itv.endMin <= win.start || itv.startMin >= win.end) continue;
+      if (cursor + durationMin <= itv.startMin) break;
+      cursor = Math.max(cursor, itv.endMin + 10);
+      if (cursor >= win.end) break;
+    }
+    if (cursor + durationMin <= win.end) {
+      return { startMin: cursor, endMin: cursor + durationMin };
+    }
+  }
+  return null;
+}
+
+function taskPriorityWeight(priority) {
+  if (priority === 'high') return 3;
+  if (priority === 'medium') return 2;
+  return 1;
+}
+
+function canonicalTaskTitle(title = '') {
+  return String(title || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/[^a-z0-9: ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function getTasksForDay({ userId, date }) {
+  const dayStart = getDayStart(date);
+  const dayEnd = getDayEnd(date);
+  return Task.find({
+    user: userId,
+    completed: false,
+    date: { $gte: dayStart, $lt: dayEnd },
+  }).lean();
+}
+
+async function placeTaskInFeasibleDay({
+  userId,
+  profile,
+  mode,
+  loadMultiplier,
+  startDate,
+  horizonDays,
+  durationMin,
+  payloadBuilder,
+}) {
+  for (let dayOffset = 0; dayOffset < horizonDays; dayOffset += 1) {
+    const targetDate = addDays(startDate, dayOffset);
+    const dayTasks = await getTasksForDay({ userId, date: targetDate });
+    const isWeekend = [0, 6].includes(targetDate.getDay());
+    const dayCap = Math.max(2, Math.round(modeTaskCap(mode, isWeekend) * loadMultiplier));
+    if (dayTasks.length >= dayCap) continue;
+
+    const windows = getStudyWindowsForDate(profile, targetDate);
+    if (!windows.length) continue;
+    const slot = findFeasibleSlot({ windows, existingTasks: dayTasks, durationMin });
+    if (!slot) continue;
+
+    // Guard against race/collision: if another generator inserted same slot,
+    // skip this day and try next feasible day.
+    const conflicting = await Task.findOne({
+      user: userId,
+      completed: false,
+      date: { $gte: getDayStart(targetDate), $lt: getDayEnd(targetDate) },
+      startTime: minToTime(slot.startMin),
+      endTime: minToTime(slot.endMin),
+    }).lean();
+    if (conflicting) continue;
+
+    const doc = await Task.create(payloadBuilder({
+      date: getDayStart(targetDate),
+      startTime: minToTime(slot.startMin),
+      endTime: minToTime(slot.endMin),
+      durationSec: durationMin * 60,
+    }));
+    return doc;
+  }
+  return null;
+}
+
+async function scheduleQueuedSkills({
+  userId,
+  profile,
+  mode,
+  loadMultiplier,
+  today,
+  reasons,
+}) {
+  const queuedSkills = Array.isArray(profile?.skillsToLearn)
+    ? profile.skillsToLearn.map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+  if (!queuedSkills.length) return 0;
+
+  const horizonDays = Math.max(queuedSkills.length + 3, 10);
+  const durationMin = mode === 'recovery' ? 45 : 60;
+  let scheduledCount = 0;
+
+  for (const skill of queuedSkills) {
+    const title = `Learn: ${skill}`;
+    const alreadyPlanned = await Task.findOne({
+      user: userId,
+      completed: false,
+      title,
+      date: { $gte: today },
+    }).lean();
+    if (alreadyPlanned) continue;
+
+    let placed = false;
+    for (let dayOffset = 0; dayOffset < horizonDays; dayOffset += 1) {
+      const targetDate = addDays(today, dayOffset);
+      const dayStart = getDayStart(targetDate);
+      const dayEnd = getDayEnd(targetDate);
+
+      const dayTasks = await Task.find({
+        user: userId,
+        completed: false,
+        date: { $gte: dayStart, $lt: dayEnd },
+      }).lean();
+
+      const isWeekend = [0, 6].includes(targetDate.getDay());
+      const dayCap = Math.max(2, Math.round(modeTaskCap(mode, isWeekend) * loadMultiplier));
+      if (dayTasks.length >= dayCap) continue;
+
+      const windows = getStudyWindowsForDate(profile, targetDate);
+      if (!windows.length) continue;
+
+      const slot = findFeasibleSlot({ windows, existingTasks: dayTasks, durationMin });
+      if (!slot) continue;
+
+      await Task.create({
+        user: userId,
+        title,
+        description: `Queued skill learning session for "${skill}".`,
+        date: dayStart,
+        startTime: minToTime(slot.startMin),
+        endTime: minToTime(slot.endMin),
+        duration: durationMin * 60,
+        category: 'study',
+        priority: 'high',
+        completed: false,
+        aiGenerated: true,
+        plannerMode: mode,
+        movedByAgent: 'skill-queue-agent',
+        movedReason: 'Queued skill scheduled in first feasible slot',
+        explanation: 'Scheduled from your learning queue with dinner-aware and collision-free timing.',
+      });
+
+      scheduledCount += 1;
+      reasons.push(`Queued skill "${skill}" scheduled on ${toIsoDate(targetDate)}.`);
+      placed = true;
+      break;
+    }
+
+    if (!placed) {
+      reasons.push(`Queued skill "${skill}" could not be scheduled in current horizon due to capacity/time limits.`);
+    }
+  }
+
+  return scheduledCount;
+}
+
+async function dedupeFutureTasks({ userId, today }) {
+  const horizonEnd = addDays(today, 30);
+  const tasks = await Task.find({
+    user: userId,
+    date: { $gte: today, $lt: horizonEnd },
+  }).sort({ date: 1, title: 1, createdAt: 1 });
+
+  const byKey = new Map();
+  const duplicateIds = [];
+
+  for (const task of tasks) {
+    const canonicalTitle = canonicalTaskTitle(task.title);
+    const key = `${toIsoDate(task.date)}|${canonicalTitle}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, task);
+      continue;
+    }
+
+    const existingWeight =
+      (existing.completed ? 100 : 0) +
+      taskPriorityWeight(existing.priority) * 10 +
+      (existing.rollovers || 0);
+    const currentWeight =
+      (task.completed ? 100 : 0) +
+      taskPriorityWeight(task.priority) * 10 +
+      (task.rollovers || 0);
+    if (currentWeight > existingWeight) {
+      duplicateIds.push(existing._id);
+      byKey.set(key, task);
+    } else {
+      duplicateIds.push(task._id);
+    }
+  }
+
+  if (duplicateIds.length) {
+    await Task.deleteMany({ _id: { $in: duplicateIds } });
+  }
+
+  return duplicateIds.length;
+}
+
+async function dedupeSameTimeFutureTasks({ userId, today }) {
+  const horizonEnd = addDays(today, 30);
+  const tasks = await Task.find({
+    user: userId,
+    date: { $gte: today, $lt: horizonEnd },
+  }).sort({ date: 1, startTime: 1, endTime: 1, createdAt: 1 });
+
+  const byKey = new Map();
+  const duplicateIds = [];
+
+  for (const task of tasks) {
+    const start = String(task.startTime || '').trim();
+    const end = String(task.endTime || '').trim();
+    if (!start || !end) continue;
+    const key = `${toIsoDate(task.date)}|${start}|${end}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, task);
+      continue;
+    }
+
+    const existingWeight =
+      (existing.completed ? 100 : 0) +
+      taskPriorityWeight(existing.priority) * 10 +
+      (existing.rollovers || 0);
+    const currentWeight =
+      (task.completed ? 100 : 0) +
+      taskPriorityWeight(task.priority) * 10 +
+      (task.rollovers || 0);
+
+    if (currentWeight > existingWeight) {
+      duplicateIds.push(existing._id);
+      byKey.set(key, task);
+    } else {
+      duplicateIds.push(task._id);
+    }
+  }
+
+  if (duplicateIds.length) {
+    await Task.deleteMany({ _id: { $in: duplicateIds } });
+  }
+  return duplicateIds.length;
+}
+
+async function createDsaTasks({ userId, profile, today, mode, examDays = new Set(), loadMultiplier = 1 }) {
   const topics = getSemesterTopics(profile?.semester || 1);
   if (!topics.length) return 0;
 
@@ -185,9 +476,8 @@ async function createDsaTasks({ userId, profile, today, mode, examDays = new Set
     date: { $gte: today },
   });
 
-  const baseStart = profile?.plannerPreferences?.comfortableStart || '17:30';
-  const baseMin   = parseTimeMin(baseStart);
-  const tasks     = [];
+  let createdCount = 0;
+  const horizonDays = 30;
 
   for (let dayOffset = 0; dayOffset < topics.length; dayOffset++) {
     const taskDate = addDays(today, dayOffset);
@@ -208,31 +498,39 @@ async function createDsaTasks({ userId, profile, today, mode, examDays = new Set
     const topic   = topics[dayOffset % topics.length];
     const label   = isSat ? '📚 [Sat DSA Extended]' : isSun ? '🎯 [Sun DSA Practice]' : '';
 
-    tasks.push({
-      user: userId,
-      title: `DSA: ${label ? label + ' ' : ''}${topic}`,
-      description: `Semester ${profile?.semester || 1} DSA — theory → 3 problems → complexity analysis.`,
-      date:      taskDate,
-      startTime: minToTime(baseMin),
-      endTime:   minToTime(Math.min(baseMin + durMin, 23 * 60 + 30)),
-      duration:  durMin * 60,
-      category:  'study',
-      priority:  dayOffset < 3 ? 'high' : isSat || isSun ? 'high' : 'medium',
-      aiGenerated:  true,
-      plannerMode:  mode,
-      movedByAgent: 'dsa-agent',
-      movedReason:  'Daily DSA — centralized orchestration',
-      explanation:  `DSA: ${topic}. Theory → 3 problems → complexity analysis.`,
+    const created = await placeTaskInFeasibleDay({
+      userId,
+      profile,
+      mode,
+      loadMultiplier,
+      startDate: taskDate,
+      horizonDays,
+      durationMin: durMin,
+      payloadBuilder: ({ date, startTime, endTime, durationSec }) => ({
+        user: userId,
+        title: `DSA: ${label ? label + ' ' : ''}${topic}`,
+        description: `Semester ${profile?.semester || 1} DSA — theory → 3 problems → complexity analysis.`,
+        date,
+        startTime,
+        endTime,
+        duration: durationSec,
+        category: 'study',
+        priority: dayOffset < 3 ? 'high' : isSat || isSun ? 'high' : 'medium',
+        aiGenerated: true,
+        plannerMode: mode,
+        movedByAgent: 'dsa-agent',
+        movedReason: 'Daily DSA — centralized orchestration',
+        explanation: `DSA: ${topic}. Theory → 3 problems → complexity analysis.`,
+      }),
     });
+    if (created) createdCount += 1;
   }
 
-  if (!tasks.length) return 0;
-  const created = await Task.insertMany(tasks);
-  return created.length;
+  return createdCount;
 }
 
 
-async function createSyllabusTasks({ userId, profile, today, mode }) {
+async function createSyllabusTasks({ userId, profile, today, mode, loadMultiplier = 1 }) {
   const subjects = profile?.syllabusStructure?.subjects || [];
   if (!subjects.length) return 0;
   await Task.deleteMany({
@@ -257,32 +555,43 @@ async function createSyllabusTasks({ userId, profile, today, mode }) {
     if (concepts.length >= 10) break;
   }
   if (!concepts.length) return 0;
-  const startTime = profile?.plannerPreferences?.comfortableStart || '17:00';
   const durationMin = mode === 'recovery' ? 35 : 50;
-  const tasks = concepts.map((item, idx) => {
+  let createdCount = 0;
+  const horizonDays = 30;
+
+  for (let idx = 0; idx < concepts.length; idx += 1) {
+    const item = concepts[idx];
     const subShort = String(item.subject || 'Subject').replace(/\s+/g, ' ').trim().slice(0, 48);
-    const slotStartMin = parseTimeMin(startTime) + (idx % 3) * (durationMin + 5);
-    const slotStart = minToTime(slotStartMin);
-    const slotEnd   = minToTime(Math.min(slotStartMin + durationMin, 23 * 60 + 30));
-    return {
-      user: userId,
-      title: `Syllabus [${subShort}]: ${item.topic}`,
-      description: `${item.subject} — ${item.chapter}`,
-      date: addDays(today, Math.floor(idx / 3)),
-      startTime: slotStart,
-      endTime:   slotEnd,
-      duration: durationMin * 60,
-      category: 'study',
-      priority: idx < 3 ? 'high' : 'medium',
-      aiGenerated: true,
-      plannerMode: mode,
-      movedByAgent: 'syllabus-agent',
-      movedReason: 'Daily centralized orchestration',
-      explanation: 'Syllabus concept imported by centralized orchestrator.',
-    };
-  });
-  const created = await Task.insertMany(tasks);
-  return created.length;
+    const preferredStartDate = addDays(today, Math.floor(idx / 2));
+    const created = await placeTaskInFeasibleDay({
+      userId,
+      profile,
+      mode,
+      loadMultiplier,
+      startDate: preferredStartDate,
+      horizonDays,
+      durationMin,
+      payloadBuilder: ({ date, startTime, endTime, durationSec }) => ({
+        user: userId,
+        title: `Syllabus [${subShort}]: ${item.topic}`,
+        description: `${item.subject} — ${item.chapter}`,
+        date,
+        startTime,
+        endTime,
+        duration: durationSec,
+        category: 'study',
+        priority: idx < 3 ? 'high' : 'medium',
+        aiGenerated: true,
+        plannerMode: mode,
+        movedByAgent: 'syllabus-agent',
+        movedReason: 'Daily centralized orchestration',
+        explanation: 'Syllabus concept imported by centralized orchestrator.',
+      }),
+    });
+    if (created) createdCount += 1;
+  }
+
+  return createdCount;
 }
 
 async function orchestrateDailyForUser({ userId, trigger = 'manual' }) {
@@ -317,6 +626,11 @@ async function orchestrateDailyForUser({ userId, trigger = 'manual' }) {
   if (hardEventToday) reasons.push('Hard exam/slip test constraint active today');
 
   // ── 1. Handle overdue tasks ───────────────────────────────────────────────
+  const preRunDuplicatesRemoved = await dedupeFutureTasks({ userId, today });
+  if (preRunDuplicatesRemoved > 0) {
+    reasons.push(`Pre-run cleanup removed ${preRunDuplicatesRemoved} duplicate task(s).`);
+  }
+
   const overdue = await Task.find({
     user: userId,
     completed: false,
@@ -437,10 +751,28 @@ async function orchestrateDailyForUser({ userId, trigger = 'manual' }) {
   }
 
   // ── 5. DSA + Syllabus tasks ───────────────────────────────────────────────
-  const [dsaTasksCreated, syllabusTasksCreated] = await Promise.all([
-    createDsaTasks({ userId, profile, today, mode, examDays }),
-    createSyllabusTasks({ userId, profile, today, mode }),
-  ]);
+  // Run sequentially to avoid slot-selection races between generators.
+  const dsaTasksCreated = await createDsaTasks({ userId, profile, today, mode, examDays, loadMultiplier });
+  const syllabusTasksCreated = await createSyllabusTasks({ userId, profile, today, mode, loadMultiplier });
+
+  const queueSkillsScheduled = await scheduleQueuedSkills({
+    userId,
+    profile,
+    mode,
+    loadMultiplier,
+    today,
+    reasons,
+  });
+  const queueSkillAdded = queueSkillsScheduled > 0;
+  const duplicatesRemoved = await dedupeFutureTasks({ userId, today });
+  const timeDuplicatesRemoved = await dedupeSameTimeFutureTasks({ userId, today });
+  const totalDuplicatesRemoved = preRunDuplicatesRemoved + duplicatesRemoved;
+  if (duplicatesRemoved > 0) {
+    reasons.push(`Removed ${duplicatesRemoved} duplicate task(s) from upcoming schedule.`);
+  }
+  if (timeDuplicatesRemoved > 0) {
+    reasons.push(`Removed ${timeDuplicatesRemoved} same-time duplicate task(s) from upcoming schedule.`);
+  }
 
   const runLog = await PlannerRunLog.create({
     userId,
@@ -455,6 +787,10 @@ async function orchestrateDailyForUser({ userId, trigger = 'manual' }) {
       dsaTasksCreated,
       syllabusTasksCreated,
       cgpaBoostAdded,
+      queueSkillAdded,
+      queueSkillsScheduled,
+      duplicatesRemoved: totalDuplicatesRemoved + timeDuplicatesRemoved,
+      timeDuplicatesRemoved,
       urgentFlagged: urgentMissed.length,
     },
     reasons,

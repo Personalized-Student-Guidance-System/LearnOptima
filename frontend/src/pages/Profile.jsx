@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { Ic, Spinner } from '../design/ui';
 import { G, ICONS } from '../design/tokens';
+import API, * as Api from '../services/api';
 
 // ─── Small reusable pieces ────────────────────────────────────────────────────
 
@@ -157,7 +157,7 @@ export default function Profile() {
   const loadProfile = async (isManualRefresh = false) => {
     if (isManualRefresh) { setRefreshing(true); setReparseMessage(''); }
     try {
-      const r = await axios.get('/profile');
+      const r = await Api.getProfile();
       applyProfileData(r.data);
     } catch {
       if (user) setForm(f => ({ ...f, name: user.name || '', email: user.email || '' }));
@@ -169,7 +169,7 @@ export default function Profile() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    axios.get('/profile')
+    Api.getProfile()
       .then(r  => { if (!cancelled) applyProfileData(r.data); })
       .catch(() => { if (!cancelled && user) setForm(f => ({ ...f, name: user.name || '', email: user.email || '' })); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -204,22 +204,25 @@ export default function Profile() {
     setSaving(true);
     try {
       const flatNames = (form.syllabusStructure?.subjects || []).map((s) => s.name).filter(Boolean);
+      const normalizedTargetRoles = Array.from(
+        new Set((form.targetRoles || []).map((r) => String(r || '').trim()).filter(Boolean))
+      );
       const payload = {
         name: form.name, email: form.email, college: form.college,
         branch: form.branch,
         semester:   form.semester === '' ? undefined : Number(form.semester),
-        targetRole: form.targetRole,
-        customRole: form.targetRole === 'Other' ? customRoleInput : '',
+        // Roles: targetRoles is canonical; backend mirrors targetRole = targetRoles[0]
+        targetRoles: normalizedTargetRoles,
+        customRole: normalizedTargetRoles[0] === 'Other' ? customRoleInput : '',
         bio: form.bio,
         cgpa:    form.cgpa === '' ? undefined : form.cgpa,
         skills:  form.skills,
         interests: form.interests,
-        targetRoles: form.targetRoles,
         syllabusStructure: form.syllabusStructure,
         syllabusSubjects: flatNames,
       };
-      await axios.put('/profile', payload);
-      setForm(f => ({ ...f, customRole: form.targetRole === 'Other' ? customRoleInput : '' }));
+      await Api.updateProfile(payload);
+      setForm(f => ({ ...f, customRole: normalizedTargetRoles[0] === 'Other' ? customRoleInput : '' }));
       setSaved(true); setTimeout(() => setSaved(false), 2000);
       await refreshUser();
     } catch { /* error handled silently */ } finally { setSaving(false); }
@@ -236,15 +239,17 @@ export default function Profile() {
     if (!customRoleInput.trim()) return;
     setSaving(true);
     try {
+      const nextRole = customRoleInput.trim();
       const payload = {
         name: form.name, email: form.email, college: form.college, branch: form.branch,
         semester: form.semester === '' ? undefined : Number(form.semester),
-        targetRole: customRoleInput.trim(), customRole: customRoleInput.trim(),
+        targetRoles: [nextRole],
+        customRole: nextRole,
         bio: form.bio, cgpa: form.cgpa === '' ? undefined : form.cgpa,
         skills: form.skills, interests: form.interests,
       };
-      await axios.put('/profile', payload);
-      setForm(f => ({ ...f, targetRole: customRoleInput.trim(), customRole: customRoleInput.trim() }));
+      await Api.updateProfile(payload);
+      setForm(f => ({ ...f, targetRoles: [nextRole], customRole: nextRole }));
       setSaved(true); setTimeout(() => setSaved(false), 2000);
       await refreshUser();
     } catch (err) { console.error('Failed to save custom role:', err); }
@@ -254,7 +259,7 @@ export default function Profile() {
   const reparseDocuments = async () => {
     setReparsing(true); setReparseMessage('');
     try {
-      const r = await axios.post('/profile/reparse');
+      const r = await Api.reparseProfileDocuments();
       applyProfileData(r.data);
       const res = r.data.reparseResults;
       if (res?.errors?.length) {
@@ -277,11 +282,7 @@ export default function Profile() {
     setUploadState(s => ({ ...s, uploading: true, msg: '', error: '' }));
     setReparseMessage('');
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const r = await axios.post(`/profile/upload-document?type=${type}`, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const r = await Api.uploadDocument(file, type);
       applyProfileData(r.data);
       const res = r.data.reparseResults;
       const parsed = type === 'resume' ? res?.resume : res?.syllabus;

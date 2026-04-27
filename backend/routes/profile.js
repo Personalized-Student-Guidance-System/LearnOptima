@@ -28,18 +28,20 @@ function buildParsingInfo() {
 }
 
 function mergeProfilePayload(u, p) {
+  const pRoles = Array.isArray(p.targetRoles) ? p.targetRoles.filter(Boolean) : [];
+  const uRoles = Array.isArray(u.targetRoles) ? u.targetRoles.filter(Boolean) : [];
+  const mergedRoles = pRoles.length ? pRoles : uRoles;
   return {
     name:       u.name,
     email:      u.email,
     college:    p.college    || u.college,
     branch:     p.branch     || u.branch,
     semester:   p.semester   ?? u.semester,
-    targetRoles: p.targetRoles || u.targetRoles || [],
+    targetRoles: mergedRoles,
     // Always resolve a singular role so pages like CareerRoadmap don't redirect:
-    // priority → StudentProfile.targetRole → User.targetRole → first entry in targetRoles array
+    // priority → StudentProfile.targetRole → StudentProfile.targetRoles[0] → User.targetRole → first entry in mergedRoles
     targetRole: (() => {
-      const roles = p.targetRoles || u.targetRoles || [];
-      return p.targetRole || u.targetRole || roles[0] || null;
+      return p.targetRole || pRoles[0] || u.targetRole || mergedRoles[0] || null;
     })(),
     customRole: p.customRole || '',
     bio:        p.bio        || '',
@@ -75,6 +77,20 @@ function mergeProfilePayload(u, p) {
 
     parsingInfo: buildParsingInfo(),
   };
+}
+
+function uniqStrings(arr) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(arr) ? arr : []) {
+    const s = String(raw || '').trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -339,12 +355,16 @@ router.put('/', auth, async (req, res) => {
     } = req.body;
     const userId = req.user.id;
 
+    // Roles rule: targetRoles is canonical; targetRole mirrors targetRoles[0].
+    const normalizedTargetRoles = targetRoles !== undefined ? uniqStrings(targetRoles) : undefined;
+    const mirroredTargetRole = normalizedTargetRoles && normalizedTargetRoles.length ? normalizedTargetRoles[0] : (targetRole !== undefined ? targetRole : undefined);
+
     if (name !== undefined || email !== undefined || targetRole !== undefined || targetRoles !== undefined) {
       const userUpdate = {};
       if (name       !== undefined) userUpdate.name       = name;
       if (email      !== undefined) userUpdate.email      = email;
-      if (targetRole !== undefined) userUpdate.targetRole = targetRole;
-      if (targetRoles !== undefined) userUpdate.targetRoles = targetRoles;
+      if (targetRoles !== undefined) userUpdate.targetRoles = normalizedTargetRoles;
+      if (targetRole !== undefined || targetRoles !== undefined) userUpdate.targetRole = mirroredTargetRole;
       await User.findByIdAndUpdate(userId, userUpdate);
     }
 
@@ -354,8 +374,15 @@ router.put('/', auth, async (req, res) => {
     if (branch     !== undefined) profile.branch     = branch;
     if (semester   !== undefined) profile.semester   = semester;
     if (college    !== undefined) profile.college    = college;
-    if (targetRole !== undefined) profile.targetRole = targetRole;
-    if (targetRoles !== undefined) profile.targetRoles = targetRoles;
+    if (targetRoles !== undefined) {
+      profile.targetRoles = normalizedTargetRoles;
+      profile.targetRole = mirroredTargetRole;
+    } else if (targetRole !== undefined) {
+      // Backward compat: if caller still sends only targetRole, keep it and also reflect into targetRoles.
+      const tr = String(targetRole || '').trim();
+      profile.targetRole = tr || undefined;
+      profile.targetRoles = tr ? uniqStrings([...(profile.targetRoles || []), tr]) : (profile.targetRoles || []);
+    }
     if (customRole !== undefined) profile.customRole = customRole;
     if (bio        !== undefined) profile.bio        = bio;
     if (cgpa       !== undefined) profile.cgpa = (cgpa == null || cgpa === '') ? undefined : Number(cgpa);

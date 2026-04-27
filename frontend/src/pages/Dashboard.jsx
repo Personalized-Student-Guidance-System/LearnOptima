@@ -83,6 +83,7 @@ export default function Dashboard() {
   const today = new Date();
   const todayTasks = tasks.filter(t => new Date(t.date).toDateString() === today.toDateString());
   const completed = todayTasks.filter(t => t.completed).length;
+  const pending = todayTasks.length - completed;
   const activeGoals = goals.filter(g => g.status === 'active').length;
 
   // Use real study session data if available, otherwise fallback to tasks
@@ -110,10 +111,6 @@ export default function Dashboard() {
   });
   const maxH = Math.max(...weekData.map(w => w.h), 2); // Min height of 2 hours for scaling
   const totalWeekHours = weekData.reduce((sum, w) => sum + w.h, 0);
-
-  const priColor = { high: G.red, medium: G.amber, low: G.text3 };
-  const priBg = { high: G.redBg, medium: G.amberBg, low: G.bg2 };
-  const priBd = { high: G.redBd, medium: G.amberBd, low: G.border };
 
   const greetHour = today.getHours();
   const greeting = greetHour < 12 ? 'Good morning' : greetHour < 18 ? 'Good afternoon' : 'Good evening';
@@ -166,39 +163,43 @@ export default function Dashboard() {
           <div style={{ padding: '16px 20px', borderBottom: `1px solid ${G.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: G.text }}>Today's Tasks</div>
-              <div style={{ fontSize: 11, color: G.text3 }}>{completed} completed · {todayTasks.length - completed} remaining</div>
+              <div style={{ fontSize: 11, color: G.text3 }}>{completed} completed · {pending} pending</div>
             </div>
-            <button className="btn btn-ghost btn-sm"><Ic path={ICONS.filter} size={12} /> Filter</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/planner')}>
+              Open Planner
+            </button>
           </div>
-          {todayTasks.length === 0 ? (
-            <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-              <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: G.text, marginBottom: 6 }}>No tasks for today</div>
-              <div style={{ fontSize: 12, color: G.text3, marginBottom: 16 }}>Use AI to generate your study plan</div>
+          <div style={{ padding: '18px 20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+              <div className="card" style={{ padding: 12, border: `1px solid ${G.border}`, boxShadow: 'none' }}>
+                <div style={{ fontSize: 11, color: G.text3 }}>Total Today</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: G.text, marginTop: 2 }}>{todayTasks.length}</div>
+              </div>
+              <div className="card" style={{ padding: 12, border: `1px solid ${G.greenBd}`, background: G.greenBg, boxShadow: 'none' }}>
+                <div style={{ fontSize: 11, color: G.green }}>Completed</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: G.green, marginTop: 2 }}>{completed}</div>
+              </div>
+              <div className="card" style={{ padding: 12, border: `1px solid ${G.amberBd}`, background: G.amberBg, boxShadow: 'none' }}>
+                <div style={{ fontSize: 11, color: G.amber }}>Pending</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: G.amber, marginTop: 2 }}>{pending}</div>
+              </div>
+            </div>
+            {todayTasks.length === 0 && (
+              <div style={{ marginTop: 14, fontSize: 12, color: G.text3 }}>
+                No tasks for today. Generate or sync plan from Planner.
+              </div>
+            )}
+            {todayTasks.length > 0 && (
+              <div style={{ marginTop: 14, fontSize: 12, color: G.text2 }}>
+                Task-level completion is available in Planner.
+              </div>
+            )}
+            <div style={{ marginTop: 12 }}>
               <button className="btn btn-primary btn-sm" onClick={() => navigate('/planner')}>
-                <Ic path={ICONS.plus} size={12} /> Create Plan
+                <Ic path={ICONS.arrow} size={12} /> Go to Planner
               </button>
             </div>
-          ) : (
-            todayTasks.map((t, i) => (
-              <div key={t._id || i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: i < todayTasks.length - 1 ? `1px solid ${G.border}` : 'none', opacity: t.completed ? 0.45 : 1, transition: 'background 0.1s' }}
-                onMouseOver={e => e.currentTarget.style.background = G.bg}
-                onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                <div className={`checkbox ${t.completed ? 'checked' : ''}`}>
-                  {t.completed && <Ic path={ICONS.check} size={9} color={G.white} sw={2.5} />}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: G.text, textDecoration: t.completed ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
-                  <div style={{ fontSize: 11, color: G.text3, marginTop: 1 }}>
-                    <span style={{ fontWeight: 500, color: G.text2 }}>{t.category}</span>{t.startTime ? ` · ${t.startTime}` : ''}
-                  </div>
-                </div>
-                <span className="badge" style={{ background: priBg[t.priority], color: priColor[t.priority], border: `1px solid ${priBd[t.priority]}`, textTransform: 'capitalize' }}>
-                  {t.priority}
-                </span>
-              </div>
-            ))
-          )}
+          </div>
         </div>
 
         {/* Right column */}

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -68,7 +67,7 @@ export default function Planner() {
   const [tasks, setTasks] = useState([]);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [calendarForm, setCalendarForm] = useState({ dates: [], type: 'Exam', recurringMonthly: false });
-  const [view, setView] = useState('week');
+  const [view, setView] = useState('day');
   const [generating, setGenerating] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showAI, setShowAI] = useState(false);
@@ -143,8 +142,8 @@ export default function Planner() {
       const start = new Date(currentDate); start.setMonth(start.getMonth() - 1);
       const end = new Date(currentDate); end.setMonth(end.getMonth() + 1);
       const [taskRes, eventRes] = await Promise.all([
-        axios.get(`/planner?start=${start.toISOString()}&end=${end.toISOString()}`),
-        axios.get('/planner/calendar-events')
+        API.get('/planner', { params: { start: start.toISOString(), end: end.toISOString() } }),
+        API.get('/planner/calendar-events')
       ]);
       setTasks(taskRes.data);
       setCalendarEvents(eventRes.data.map(e => ({
@@ -156,7 +155,7 @@ export default function Planner() {
         editable: false
       })));
       // Profile roles
-      const profileRes = await axios.get('/profile');
+      const profileRes = await API.get('/profile');
       const roles = profileRes.data?.targetRoles || (profileRes.data?.targetRole ? [profileRes.data.targetRole] : []);
       setProfileRoles(roles);
       if (roles.length > 0) setSyncRole(roles[0]);
@@ -167,7 +166,7 @@ export default function Planner() {
     try {
       const start = new Date(currentDate); start.setDate(start.getDate() - 30);
       const end   = new Date(currentDate); end.setDate(end.getDate() + 30);
-      const res = await axios.get(`/planner?start=${start.toISOString()}&end=${end.toISOString()}`);
+      const res = await API.get('/planner', { params: { start: start.toISOString(), end: end.toISOString() } });
       setTasks(res.data);
     } catch {}
   };
@@ -175,7 +174,7 @@ export default function Planner() {
   const addTask = async () => {
     setSaving(true);
     try {
-      await axios.post('/planner', form);
+      await API.post('/planner', form);
       setShowModal(false);
       setForm({ title: '', date: '', startTime: '', endTime: '', category: 'study', priority: 'medium', description: '' });
       fetchTasks();
@@ -186,7 +185,14 @@ export default function Planner() {
     try {
       await updateTaskStatus(task._id, { completed: !task.completed, reasonText: task.completionReason || '' });
       fetchTasks();
-    } catch {}
+    } catch (err) {
+      if (err?.response?.data?.code === 'TASK_WINDOW_EXCEEDED') {
+        alert(err?.response?.data?.message || 'Task window exceeded. Task moved to next day.');
+        fetchTasks();
+        return;
+      }
+      alert(err?.response?.data?.message || 'Failed to update task status');
+    }
   };
 
   const submitTaskReason = async (markCompleted = false) => {
@@ -201,18 +207,25 @@ export default function Planner() {
       setReasonText('');
       fetchTasks();
       fetchPlannerMeta();
-    } catch {}
+    } catch (err) {
+      if (err?.response?.data?.code === 'TASK_WINDOW_EXCEEDED') {
+        alert(err?.response?.data?.message || 'Task window exceeded. Task moved to next day.');
+        fetchTasks();
+        return;
+      }
+      alert(err?.response?.data?.message || 'Failed to save task status');
+    }
   };
 
   const deleteTask = async (id) => {
-    try { await axios.delete(`/planner/${id}`); fetchTasks(); } catch {}
+    try { await API.delete(`/planner/${id}`); fetchTasks(); } catch {}
   };
 
   const generateAI = async () => {
     if (!syncRole) return alert('Please define a Target Role in your Profile first.');
     setGenerating(true);
     try {
-      const res = await axios.post('/planner/sync-roadmap', { role: syncRole });
+      const res = await API.post('/planner/sync-roadmap', { role: syncRole });
       const tasks = res.data?.tasks;
       const n = Array.isArray(tasks) ? tasks.length : 0;
       const hint = res.data?.warning ? `\n${res.data.warning}` : '';
@@ -320,7 +333,7 @@ export default function Planner() {
     const startTime = fromMinutes(targetStartMin);
     const endTime = fromMinutes(targetStartMin + durationMin);
     try {
-      await axios.put(`/planner/${taskId}`, {
+      await API.put(`/planner/${taskId}`, {
         date: targetDate,
         startTime,
         endTime,
@@ -369,7 +382,8 @@ export default function Planner() {
   const completed  = todayTasks.filter(t => t.completed).length;
 
   return (
-    <div className="page-enter" style={{ padding: '24px 28px', maxWidth: 1100 }}>
+    <>
+      <div className="page-enter" style={{ padding: '24px 28px', maxWidth: 1100 }}>
       {/* Controls */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
         <div>
@@ -509,7 +523,7 @@ export default function Planner() {
                       ))}
                       {dayTasks.slice(0, 3).map((t, ti) => (
                         <div key={ti} style={{ fontSize: 10, borderRadius: 3, padding: '2px 5px', marginBottom: 2, background: t.priority === 'high' ? G.redBg : t.priority === 'medium' ? G.amberBg : G.blueBg, color: t.priority === 'high' ? G.red : t.priority === 'medium' ? G.amber : G.blue, borderLeft: `2px solid ${t.priority === 'high' ? G.red : t.priority === 'medium' ? G.amber : G.blue}`, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                          {t.startTime && <span style={{ opacity: 0.7 }}>{t.startTime} </span>}{t.title.slice(0, 20)}
+                          {t.startTime && <span style={{ opacity: 0.7 }}>{t.startTime}{t.endTime ? ` - ${t.endTime}` : ''} </span>}{t.title.slice(0, 20)}
                         </div>
                       ))}
                       {dayTasks.length > 3 && <div style={{ fontSize: 9, color: G.text3 }}>+{dayTasks.length - 3} more</div>}
@@ -557,7 +571,7 @@ export default function Planner() {
                   {dayTasks.map((t, j) => (
                     <div key={j} style={{ padding: '5px 8px', borderRadius: 4, background: G.bg, marginBottom: 5, borderLeft: `2px solid ${priColor[t.priority] || G.text3}` }}>
                       <div style={{ fontSize: 11, fontWeight: 500, color: G.text, lineHeight: 1.3 }}>{t.title.split(' ').slice(0,4).join(' ')}{t.title.split(' ').length > 4 ? '…' : ''}</div>
-                      <div style={{ fontSize: 10, color: G.text3, marginTop: 2 }}>{t.startTime}</div>
+                      <div style={{ fontSize: 10, color: G.text3, marginTop: 2 }}>{t.startTime}{t.endTime ? ` - ${t.endTime}` : ''}</div>
                     </div>
                   ))}
                   {/* Sunday enrichment chips */}
@@ -837,6 +851,7 @@ export default function Planner() {
           </div>
         </div>
       )}
+      </div>
 
       {/* Add Task Modal */}
       {showModal && (
@@ -1064,6 +1079,6 @@ export default function Planner() {
           )}
         </div>
       )}
-    </div>
+    </>
   );
 }

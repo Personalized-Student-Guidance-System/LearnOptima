@@ -71,12 +71,17 @@ export default function Step1Profile() {
     setLoading(true);
     setError('');
     try {
+      if (!targetRole) {
+        setError('Please select a target role to continue.');
+        setLoading(false);
+        return;
+      }
       await onboardingService.saveProfile({
         branch: branch || undefined,
         semester,
         goal: goal || undefined,
         targetYear: goal ? targetYear : undefined,
-        targetRole: targetRole || undefined,
+        targetRole,
         interests,
       });
       await refreshUser();

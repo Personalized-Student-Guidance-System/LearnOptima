@@ -31,15 +31,23 @@ def _load_spacy():
     global _nlp, _SPACY_AVAILABLE
     if _nlp is not None:
         return _nlp
+    if os.environ.get("SKILLGAP_DISABLE_SPACY", "").strip() in {"1", "true", "yes"}:
+        print("[SkillExtractor] spaCy disabled via SKILLGAP_DISABLE_SPACY=1", file=sys.stderr)
+        _SPACY_AVAILABLE = False
+        return None
     try:
         import spacy
         try:
             _nlp = spacy.load("en_core_web_sm", disable=["lemmatizer"])
         except OSError:
-            print("[SkillExtractor] Downloading spaCy en_core_web_sm model...", file=sys.stderr)
-            from spacy.cli import download
-            download("en_core_web_sm")
-            _nlp = spacy.load("en_core_web_sm", disable=["lemmatizer"])
+            # Never download models at request time; keep the analyzer responsive.
+            print(
+                "[SkillExtractor] spaCy model en_core_web_sm not found — falling back to regex-only mode. "
+                "Install it with: python -m spacy download en_core_web_sm",
+                file=sys.stderr
+            )
+            _SPACY_AVAILABLE = False
+            return None
         _SPACY_AVAILABLE = True
         print("[SkillExtractor] ✓ spaCy loaded", file=sys.stderr)
         return _nlp
@@ -58,9 +66,26 @@ def get_sentence_model():
     global _st_model, _ST_AVAILABLE
     if _st_model is not None:
         return _st_model
+    if os.environ.get("SKILLGAP_DISABLE_EMBEDDINGS", "").strip() in {"1", "true", "yes"}:
+        print("[SkillExtractor] Embeddings disabled via SKILLGAP_DISABLE_EMBEDDINGS=1", file=sys.stderr)
+        _ST_AVAILABLE = False
+        return None
     try:
         from sentence_transformers import SentenceTransformer
-        _st_model = SentenceTransformer("all-MiniLM-L6-v2")
+        # Default: do not allow runtime downloads (prevents hangs/offline failures).
+        allow_downloads = os.environ.get("SKILLGAP_ALLOW_MODEL_DOWNLOADS", "").strip() in {"1", "true", "yes"}
+        kwargs = {}
+        if not allow_downloads:
+            kwargs["local_files_only"] = True
+        try:
+            _st_model = SentenceTransformer("all-MiniLM-L6-v2", **kwargs)
+        except TypeError:
+            # Older sentence-transformers versions may not support local_files_only
+            if not allow_downloads:
+                print("[SkillExtractor] sentence-transformers does not support local_files_only — skipping embeddings", file=sys.stderr)
+                _ST_AVAILABLE = False
+                return None
+            _st_model = SentenceTransformer("all-MiniLM-L6-v2")
         _ST_AVAILABLE = True
         print("[SkillExtractor] ✓ Sentence-transformer loaded (all-MiniLM-L6-v2)", file=sys.stderr)
         return _st_model

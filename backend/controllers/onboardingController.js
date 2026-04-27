@@ -35,6 +35,9 @@ async function profileStep(req, res) {
   try {
     log('Step1', 'Profile & goals — start');
     const { branch, semester, goal, targetYear, interests, targetRole } = req.body;
+    if (!targetRole || !String(targetRole).trim()) {
+      return res.status(400).json({ message: 'Target role is required. Please select a target role to continue.' });
+    }
     let interestsArr = [];
     if (Array.isArray(interests)) interestsArr = interests;
     else if (typeof interests === 'string') {
@@ -52,13 +55,14 @@ async function profileStep(req, res) {
     profile.semester = semester !== undefined ? Number(semester) : profile.semester;
     profile.goals = goals.length ? goals : profile.goals;
     profile.interests = interestsArr.length ? interestsArr : profile.interests;
-    if (targetRole) profile.targetRole = targetRole;  // Save target role to profile if provided
+    // Roles rule: targetRoles is canonical; targetRole mirrors targetRoles[0]
+    const tr = String(targetRole).trim();
+    profile.targetRoles = [tr];
+    profile.targetRole = tr;
     const savedProfile = await profile.save();
 
     // Also save targetRole to User model for consistency
-    if (targetRole) {
-      await User.findByIdAndUpdate(req.user.id, { targetRole });
-    }
+    await User.findByIdAndUpdate(req.user.id, { targetRole: tr, targetRoles: [tr] });
 
     log('Step1', `Profile saved: branch=${profile.branch} semester=${profile.semester} targetRole=${profile.targetRole} goals=${profile.goals?.length || 0} interests=${profile.interests?.length || 0}`);
     log('DB', `Verified StudentProfile in DB: id=${savedProfile._id} collection=studentprofiles userId=${savedProfile.userId}`);

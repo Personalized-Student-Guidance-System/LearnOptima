@@ -60,9 +60,9 @@ class OnetClient:
             if r.status_code == 200:
                 return r.json()
                 
-            print(f"[O*NET] HTTP {r.status_code} for {path}")
+            print(f"[O*NET] HTTP {r.status_code} for {path}", file=sys.stderr)
         except Exception as e:
-            print(f"[O*NET] Request error: {e}")
+            print(f"[O*NET] Request error: {e}", file=sys.stderr)
         return None
 
     def _clean_role(self, role: str) -> str:
@@ -92,7 +92,7 @@ class OnetClient:
         if not clean and segments:
             clean = segments[0].strip()
             
-        print(f"[O*NET] Cleaning role: '{role}' -> '{clean}'")
+        print(f"[O*NET] Cleaning role: '{role}' -> '{clean}'", file=sys.stderr)
         return clean
 
     def search_occupation(self, role: str) -> Optional[Tuple[str, str]]:
@@ -153,7 +153,7 @@ class OnetClient:
         
         code  = best_occ.get("code", "")
         title = best_occ.get("title", "")
-        print(f"[O*NET] Best Match: '{role}' -> '{title}' ({code}) [overlap={max_overlap}]")
+        print(f"[O*NET] Best Match: '{role}' -> '{title}' ({code}) [overlap={max_overlap}]", file=sys.stderr)
         return code, title
 
     def get_skills(self, onet_code: str) -> List[Dict]:
@@ -334,5 +334,5 @@ class OnetClient:
                 seen.add(key)
                 merged.append(s)
 
-        print(f"[O*NET] Got {len(merged)} skills for '{role}' ({code})")
+        print(f"[O*NET] Got {len(merged)} skills for '{role}' ({code})", file=sys.stderr)
         return merged[:20]

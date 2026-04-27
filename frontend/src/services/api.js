@@ -67,6 +67,7 @@ export const analyzeSkillGap = (role, refresh = false) =>
     },
   });
 export const getSkillAIRecommendation = (role) => API.get('/skills/ai-recommendation', { params: { role } });
+export const updateSkillLearningQueue = (skill, action) => API.put('/skills/learning-queue', { skill, action });
 
 // Career
 export const getCareerRoadmap = (params) => API.get('/career/personalized', { params });

@@ -73,7 +73,8 @@ export default function GoalAnalyzer() {
   };
 
   return (
-    <div className="page-enter" style={{ padding: '24px 28px', maxWidth: 900 }}>
+    <>
+      <div className="page-enter" style={{ padding: '24px 28px', maxWidth: 900 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>Goal Tracker</h1>
@@ -269,6 +270,7 @@ export default function GoalAnalyzer() {
           ))}
         </div>
       )}
+      </div>
 
       {/* Auto-Generate Goal Drawer */}
       {showAutoGenerate && (
@@ -342,6 +344,6 @@ export default function GoalAnalyzer() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

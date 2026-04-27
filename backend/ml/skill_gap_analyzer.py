@@ -163,7 +163,7 @@ def _cache_get(role: str) -> Optional[Dict]:
     if key in _skills_memory_cache:
         entry = _skills_memory_cache[key]
         if time.time() - entry["ts"] < _SKILLS_CACHE_TTL:
-            print(f"[SkillCache] Memory HIT: {role}")
+            print(f"[SkillCache] Memory HIT: {role}", file=sys.stderr)
             return entry["data"]
 
     # MongoDB cache
@@ -179,7 +179,7 @@ def _cache_get(role: str) -> Optional[Dict]:
         except Exception as e:
             print(f"[SkillCache] Read error: {e}", file=sys.stderr)
 
-    print(f"[SkillCache] MISS: {role}")
+    print(f"[SkillCache] MISS: {role}", file=sys.stderr)
     return None
 
 
@@ -463,7 +463,7 @@ class DynamicSkillGapAnalyzer:
         refresh:     bool = False,
     ) -> Dict:
         target_role = _normalize_role(target_role)
-        print(f"\n[SkillGap] ═══ Analyzing '{target_role}' for user with {len(user_skills)} skills ═══")
+        print(f"\n[SkillGap] ═══ Analyzing '{target_role}' for user with {len(user_skills)} skills ═══", file=sys.stderr)
 
         # ── Step 1: Check cache ──────────────────────────────────────────────
         cached = None if refresh else _cache_get(target_role)
@@ -472,7 +472,7 @@ class DynamicSkillGapAnalyzer:
         use_cache = False
         if cached:
             if _onet.available and cached.get("source") != "onet-api":
-                print(f"[SkillGap] Ignoring non-O*NET cache for '{target_role}' to favor O*NET")
+                print(f"[SkillGap] Ignoring non-O*NET cache for '{target_role}' to favor O*NET", file=sys.stderr)
                 use_cache = False
             else:
                 use_cache = True
@@ -482,7 +482,7 @@ class DynamicSkillGapAnalyzer:
             required_skills = cached.get("required_skills", [])
             level_map = cached.get("level_map", {})
             scrape_source = cached.get("source", "cache")
-            print(f"[SkillGap] Using cached {len(required_skills)} skills for '{target_role}' from {scrape_source}")
+            print(f"[SkillGap] Using cached {len(required_skills)} skills for '{target_role}' from {scrape_source}", file=sys.stderr)
         else:
             # ── NEW STEP 2: O*NET Authority First ──
             required_skills = []
@@ -492,7 +492,7 @@ class DynamicSkillGapAnalyzer:
             # A) GET OFFICIAL O*NET FOUNDATIONS (Primary Priority)
             onet_list = []
             if _onet.available:
-                print(f"[SkillGap] 🏛️ Fetching Official O*NET profile for '{target_role}'...")
+                print(f"[SkillGap] 🏛️ Fetching Official O*NET profile for '{target_role}'...", file=sys.stderr)
                 onet_list = _onet.get_role_skills(target_role)
                 for s in onet_list:
                     name = s["name"].lower().strip()
@@ -502,14 +502,14 @@ class DynamicSkillGapAnalyzer:
             
             # B) SUPPLEMENT WITH SCRAPING ONLY IF O*NET FAILED
             if len(onet_list) < 5:
-                print(f"[SkillGap] 🌐 O*NET had insufficient data, supplementing via Scraping for '{target_role}'...")
+                print(f"[SkillGap] 🌐 O*NET had insufficient data, supplementing via Scraping for '{target_role}'...", file=sys.stderr)
                 raw_text = ""
                 try:
                     raw_naukri   = _scrape_naukri(target_role, location)
                     raw_linkedin = _scrape_linkedin(target_role, location)
                     raw_text = f"{raw_naukri} {raw_linkedin}"
                 except Exception as e:
-                    print(f"[SkillGap] Scraping warning: {e}")
+                    print(f"[SkillGap] Scraping warning: {e}", file=sys.stderr)
 
                 if len(raw_text) > 200:
                      scraped_skills_raw = extract_skills_from_text(raw_text)
@@ -546,7 +546,7 @@ class DynamicSkillGapAnalyzer:
             scrape_source = "onet-basics-first-progression"
             
             if not required_skills:
-                print("[SkillGap] All sources failed, using seeds")
+                print("[SkillGap] All sources failed, using seeds", file=sys.stderr)
                 required_skills = [s.title() for s in seed_skills[:top_n]]
             
             # ── Step 4: Cache the results ────────────────────────────────────
@@ -558,7 +558,7 @@ class DynamicSkillGapAnalyzer:
             })
 
         # ── Step 5: LENIENT Semantic matching (Strengths detection) ───────────
-        print(f"[SkillGap] Matching {len(user_skills)} user skills vs {len(required_skills)} required...")
+        print(f"[SkillGap] Matching {len(user_skills)} user skills vs {len(required_skills)} required...", file=sys.stderr)
         # Clean user skills
         user_lower = [s.lower().strip() for s in user_skills if s]
         
@@ -579,7 +579,7 @@ class DynamicSkillGapAnalyzer:
         match_score = (len(matched) / max(len(required_skills), 1)) * 100
         
         # ── Step 6: Prioritize gaps by Level (Basics first) ───────────────────
-        print(f"[SkillGap] Ordering {len(missing)} gaps by complexity...")
+        print(f"[SkillGap] Ordering {len(missing)} gaps by complexity...", file=sys.stderr)
         
         # Sort missing by their difficulty level for the final report
         LEVEL_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
@@ -657,7 +657,7 @@ class DynamicSkillGapAnalyzer:
             "ml_pipeline":          "scrape(naukri+linkedin+indeed+google) → nlp(spacy+regex+ngrams) → embed(sentence-transformer) → prioritize(frequency)",
         }
 
-        print(f"[SkillGap] ✓ Done — {len(matched)} matched, {len(missing)} missing, score={match_score:.1f}%\n")
+        print(f"[SkillGap] ✓ Done — {len(matched)} matched, {len(missing)} missing, score={match_score:.1f}%\n", file=sys.stderr)
         return result
 
 

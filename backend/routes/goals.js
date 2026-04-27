@@ -5,6 +5,20 @@ const StudentProfile = require('../models/StudentProfile');
 const User = require('../models/User');
 const { generateJson } = require('../services/geminiService');
 
+function uniqStrings(arr) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(arr) ? arr : []) {
+    const s = String(raw || '').trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
 router.get('/', auth, async (req, res) => {
   try {
     const goals = await Goal.find({ user: req.user.id }).sort('-createdAt');
@@ -40,12 +54,37 @@ router.put('/:id', auth, async (req, res) => {
     Object.assign(goal, updatePayload);
     
     // Skill Mapping auto-sync: When Goal is completed, inject Linked Skill to Skill Gap Profile
-    if ((goal.status === 'completed' || goal.progress >= 100) && goal.linkedSkill) {
+    if (goal.status === 'completed' || goal.progress >= 100) {
       goal.status = 'completed';
       const profile = await StudentProfile.findOne({ userId: req.user.id });
-      if (profile && !profile.extraSkills?.includes(goal.linkedSkill)) {
-        profile.extraSkills = [...(profile.extraSkills || []), goal.linkedSkill];
+      const user = await User.findById(req.user.id).select('skills').catch(() => null);
+
+      // Choose skill(s) to add:
+      // - Prefer explicit linkedSkill
+      // - Else fallback to first skill from aiDetails.skillsNeeded (comma-separated string)
+      const fallbackSkills = String(goal.aiDetails?.skillsNeeded || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const skillsToAdd = uniqStrings([goal.linkedSkill, fallbackSkills[0]].filter(Boolean));
+
+      if (profile && skillsToAdd.length) {
+        const extra = uniqStrings([...(profile.extraSkills || []), ...skillsToAdd]);
+        profile.extraSkills = extra;
+
+        // If the skill was in learning queue, remove it (completion implies learned)
+        if (Array.isArray(profile.skillsToLearn) && profile.skillsToLearn.length) {
+          const lower = new Set(skillsToAdd.map((s) => s.toLowerCase()));
+          profile.skillsToLearn = profile.skillsToLearn.filter((s) => !lower.has(String(s || '').trim().toLowerCase()));
+        }
+
         await profile.save();
+      }
+
+      // Mirror into User.skills for older pages that still read from User
+      if (user && skillsToAdd.length) {
+        user.skills = uniqStrings([...(user.skills || []), ...skillsToAdd]);
+        await user.save();
       }
     }
 
