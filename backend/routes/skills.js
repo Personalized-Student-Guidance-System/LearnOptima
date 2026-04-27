@@ -463,20 +463,23 @@ router.put('/learning-queue', auth, async (req, res) => {
     }
     await profile.save();
 
-    // Always run planner orchestration after queue mutation so Skill Gap queue
-    // is reflected in the planner schedule with proper capacity/collision logic.
-    setImmediate(async () => {
-      try {
-        await orchestrateDailyForUser({
-          userId,
-          trigger: `skill-queue-${action || 'update'}`,
-        });
-      } catch (e) {
-        console.warn('[LearningQueue] Post-update orchestration failed:', e.message);
-      }
-    });
+    // Run planner orchestration immediately so queue changes are visible right away.
+    let orchestrationStatus = 'ok';
+    try {
+      await orchestrateDailyForUser({
+        userId,
+        trigger: `skill-queue-${action || 'update'}`,
+      });
+    } catch (e) {
+      orchestrationStatus = 'failed';
+      console.warn('[LearningQueue] Post-update orchestration failed:', e.message);
+    }
 
-    res.json({ message: 'Learning queue updated', skillsToLearn: profile.skillsToLearn });
+    res.json({
+      message: 'Learning queue updated',
+      skillsToLearn: profile.skillsToLearn,
+      orchestrationStatus,
+    });
   } catch (err) {
     console.error('Learning queue error:', err);
     res.status(500).json({ message: err.message });

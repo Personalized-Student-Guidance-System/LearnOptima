@@ -311,7 +311,7 @@ async function scheduleQueuedSkills({
     : [];
   if (!queuedSkills.length) return 0;
 
-  const horizonDays = Math.max(queuedSkills.length + 3, 10);
+  const horizonDays = Math.max(queuedSkills.length + 7, 21);
   const durationMin = mode === 'recovery' ? 45 : 60;
   let scheduledCount = 0;
 
@@ -439,6 +439,14 @@ async function dedupeSameTimeFutureTasks({ userId, today }) {
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, task);
+      continue;
+    }
+
+    // Only treat as duplicate when semantic title is same.
+    // Different tasks can legitimately share same time until planner shifts them.
+    const existingTitle = canonicalTaskTitle(existing.title);
+    const currentTitle = canonicalTaskTitle(task.title);
+    if (existingTitle !== currentTitle) {
       continue;
     }
 
@@ -750,12 +758,8 @@ async function orchestrateDailyForUser({ userId, trigger = 'manual' }) {
     cgpaBoostAdded = blocksAdded > 0;
   }
 
-  // ── 5. DSA + Syllabus tasks ───────────────────────────────────────────────
-  // Run sequentially to avoid slot-selection races between generators.
-  const dsaTasksCreated = await createDsaTasks({ userId, profile, today, mode, examDays, loadMultiplier });
-  const syllabusTasksCreated = await createSyllabusTasks({ userId, profile, today, mode, loadMultiplier });
-
-  const queueSkillsScheduled = await scheduleQueuedSkills({
+  // ── 5. Queue-first scheduling, then DSA + Syllabus ───────────────────────
+  const queueSkillsScheduledPre = await scheduleQueuedSkills({
     userId,
     profile,
     mode,
@@ -763,7 +767,23 @@ async function orchestrateDailyForUser({ userId, trigger = 'manual' }) {
     today,
     reasons,
   });
-  const queueSkillAdded = queueSkillsScheduled > 0;
+  const queueSkillAdded = queueSkillsScheduledPre > 0;
+
+  // Run sequentially to avoid slot-selection races between generators.
+  const dsaTasksCreated = await createDsaTasks({ userId, profile, today, mode, examDays, loadMultiplier });
+  const syllabusTasksCreated = await createSyllabusTasks({ userId, profile, today, mode, loadMultiplier });
+
+  // Re-run queue scheduling after generators to fill any remaining unscheduled skills.
+  const queueSkillsScheduledPost = await scheduleQueuedSkills({
+    userId,
+    profile,
+    mode,
+    loadMultiplier,
+    today,
+    reasons,
+  });
+  const finalQueueSkillsScheduled = queueSkillsScheduledPre + queueSkillsScheduledPost;
+  const finalQueueSkillAdded = finalQueueSkillsScheduled > 0;
   const duplicatesRemoved = await dedupeFutureTasks({ userId, today });
   const timeDuplicatesRemoved = await dedupeSameTimeFutureTasks({ userId, today });
   const totalDuplicatesRemoved = preRunDuplicatesRemoved + duplicatesRemoved;
@@ -787,8 +807,8 @@ async function orchestrateDailyForUser({ userId, trigger = 'manual' }) {
       dsaTasksCreated,
       syllabusTasksCreated,
       cgpaBoostAdded,
-      queueSkillAdded,
-      queueSkillsScheduled,
+      queueSkillAdded: finalQueueSkillAdded,
+      queueSkillsScheduled: finalQueueSkillsScheduled,
       duplicatesRemoved: totalDuplicatesRemoved + timeDuplicatesRemoved,
       timeDuplicatesRemoved,
       urgentFlagged: urgentMissed.length,
